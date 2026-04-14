@@ -88,7 +88,8 @@ class GCodeDatabase:
         content: str,
         material: str = "45#钢",
         operations: Optional[List[Dict]] = None,
-        metadata: Optional[Dict] = None
+        metadata: Optional[Dict] = None,
+        user_id: int = None
     ) -> int:
         """
         Save a generated G-code program to the database.
@@ -99,6 +100,7 @@ class GCodeDatabase:
             material: Material type used
             operations: List of machining operations
             metadata: Additional metadata as dictionary
+            user_id: User ID for multi-user isolation
             
         Returns:
             The ID of the newly inserted program, or raises exception on error
@@ -113,20 +115,21 @@ class GCodeDatabase:
             
             cursor.execute("""
                 INSERT INTO programs (
-                    filename, content, material, operations, created_at, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    filename, content, material, operations, created_at, metadata, user_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
                 filename,
                 content,
                 material,
                 operations_json,
                 created_at,
-                metadata_json
+                metadata_json,
+                user_id
             ))
             
             conn.commit()
             program_id = cursor.lastrowid
-            logger.info(f"Program saved: ID={program_id}, filename={filename}")
+            logger.info(f"Program saved: ID={program_id}, filename={filename}, user_id={user_id}")
             return program_id
             
         except Exception as e:
@@ -180,7 +183,8 @@ class GCodeDatabase:
         self,
         limit: int = 50,
         offset: int = 0,
-        material: Optional[str] = None
+        material: Optional[str] = None,
+        user_id: Optional[int] = None
     ) -> List[Dict]:
         """
         List programs with optional filtering.
@@ -189,6 +193,7 @@ class GCodeDatabase:
             limit: Maximum number of programs to return
             offset: Number of programs to skip
             material: Filter by material type
+            user_id: Filter by user ID (None for all users)
             
         Returns:
             List of program summaries (without full content)
@@ -197,17 +202,34 @@ class GCodeDatabase:
         try:
             cursor = conn.cursor()
             
-            if material:
+            # Build query based on filters
+            if material and user_id is not None:
                 cursor.execute("""
-                    SELECT id, filename, material, created_at
+                    SELECT id, filename, material, created_at, operations
+                    FROM programs
+                    WHERE material = ? AND user_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ? OFFSET ?
+                """, (material, user_id, limit, offset))
+            elif material:
+                cursor.execute("""
+                    SELECT id, filename, material, created_at, operations
                     FROM programs
                     WHERE material = ?
                     ORDER BY created_at DESC
                     LIMIT ? OFFSET ?
                 """, (material, limit, offset))
+            elif user_id is not None:
+                cursor.execute("""
+                    SELECT id, filename, material, created_at, operations
+                    FROM programs
+                    WHERE user_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ? OFFSET ?
+                """, (user_id, limit, offset))
             else:
                 cursor.execute("""
-                    SELECT id, filename, material, created_at
+                    SELECT id, filename, material, created_at, operations
                     FROM programs
                     ORDER BY created_at DESC
                     LIMIT ? OFFSET ?
@@ -283,7 +305,8 @@ class GCodeDatabase:
     def search_programs(
         self,
         query: str,
-        limit: int = 20
+        limit: int = 20,
+        user_id: Optional[int] = None
     ) -> List[Dict]:
         """
         Search programs by program name or material.
@@ -291,6 +314,7 @@ class GCodeDatabase:
         Args:
             query: Search query string
             limit: Maximum results to return
+            user_id: Filter by user ID (None for all users)
             
         Returns:
             List of matching program summaries
@@ -301,15 +325,26 @@ class GCodeDatabase:
             
             search_pattern = f"%{query}%"
             
-            cursor.execute("""
-                SELECT id, program_name, material, machine_system,
-                       start_diameter, end_diameter, length, 
-                       lines, created_at
-                FROM programs
-                WHERE program_name LIKE ? OR material LIKE ?
-                ORDER BY created_at DESC
-                LIMIT ?
-            """, (search_pattern, search_pattern, limit))
+            if user_id is not None:
+                cursor.execute("""
+                    SELECT id, program_name, material, machine_system,
+                           start_diameter, end_diameter, length, 
+                           lines, created_at
+                    FROM programs
+                    WHERE (program_name LIKE ? OR material LIKE ?) AND user_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """, (search_pattern, search_pattern, user_id, limit))
+            else:
+                cursor.execute("""
+                    SELECT id, program_name, material, machine_system,
+                           start_diameter, end_diameter, length, 
+                           lines, created_at
+                    FROM programs
+                    WHERE program_name LIKE ? OR material LIKE ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """, (search_pattern, search_pattern, limit))
             
             rows = cursor.fetchall()
             

@@ -4,9 +4,10 @@ CAD to G-code Platform - Web API
 FastAPI-based REST API for CAD processing and G-code generation.
 """
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Query, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, FileResponse, Response, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from pathlib import Path
@@ -18,6 +19,10 @@ from src.config_loader import load_config
 from src.core.process_planning import CuttingRulesEngine, MaterialType, OperationType
 from src.cam.gcode_generator import GCodeGenerator, generate_simple_shaft
 from src.storage.gcode_storage import GCodeDatabase
+from src.ai.dxf_parser import DXFParser
+from src.ai.feature_recognition import recognize_features
+from src.storage.user_management import get_user_database, UserDatabase
+from src.export.process_sheet import get_exporter
 
 # Setup logging
 logging.basicConfig(
@@ -50,6 +55,7 @@ app.add_middleware(
 # Initialize engines and database
 cutting_engine = CuttingRulesEngine()
 gcode_db = GCodeDatabase()
+user_db = get_user_database()
 
 
 # ==================== Models ====================
@@ -144,6 +150,56 @@ class ProgramDetail(BaseModel):
     metadata: Optional[Dict] = None
 
 
+class DXFUploadResponse(BaseModel):
+    """Response after uploading and processing a DXF file."""
+    success: bool
+    filename: str
+    features_count: int
+    features: List[Dict]
+    gcode: str
+    gcode_lines: int
+    program_name: str
+    message: str
+
+
+# ==================== User Models ====================
+
+class UserLogin(BaseModel):
+    """User login request."""
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=6)
+
+
+class UserRegister(BaseModel):
+    """User registration request."""
+    username: str = Field(..., min_length=3, max_length=50)
+    email: str = Field(..., pattern=r'^[^@]+@[^@]+\.[^@]+$')
+    password: str = Field(..., min_length=6)
+
+
+class UserResponse(BaseModel):
+    """User information response."""
+    id: int
+    username: str
+    email: str
+    role: str
+
+
+class LoginResponse(BaseModel):
+    """Login response with token."""
+    success: bool
+    token: str
+    user: UserResponse
+
+
+class UserPreferences(BaseModel):
+    """User preferences."""
+    default_material: Optional[str] = None
+    default_machine_system: Optional[str] = None
+    theme: Optional[str] = None
+    language: Optional[str] = None
+
+
 # ==================== Endpoints ====================
 
 @app.get("/", tags=["Root"])
@@ -156,6 +212,129 @@ async def root():
         "docs": "/docs",
         "health": "/health",
     }
+
+
+# ==================== Authentication Dependency ====================
+
+async def get_current_user(authorization: str = Header(None)) -> Optional[Dict]:
+    """Get current user from JWT token."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    
+    token = authorization.replace("Bearer ", "")
+    user_info = user_db.verify_token(token)
+    return user_info
+
+
+def require_auth(authorization: str = Header(None)) -> Dict:
+    """Require authentication."""
+    user_info = get_current_user(authorization)
+    if not user_info:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return user_info
+
+
+# ==================== User Authentication Endpoints ====================
+
+@app.post("/auth/register", response_model=UserResponse, tags=["Authentication"])
+async def register(request: UserRegister):
+    """Register a new user."""
+    try:
+        user_id = user_db.create_user(
+            username=request.username,
+            email=request.email,
+            password=request.password
+        )
+        
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Username or email already exists")
+        
+        user = user_db.get_user_by_id(user_id)
+        return UserResponse(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+            role=user.role
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error registering user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/auth/login", response_model=LoginResponse, tags=["Authentication"])
+async def login(request: UserLogin):
+    """Login and get JWT token."""
+    try:
+        result = user_db.authenticate(request.username, request.password)
+        
+        if not result:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        
+        return LoginResponse(
+            success=True,
+            token=result['token'],
+            user=UserResponse(**result['user'])
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error logging in: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/auth/logout", tags=["Authentication"])
+async def logout(authorization: str = Header(None)):
+    """Logout and invalidate token."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=400, detail="No token provided")
+    
+    token = authorization.replace("Bearer ", "")
+    success = user_db.logout(token)
+    
+    return {"success": success}
+
+
+@app.get("/auth/me", response_model=UserResponse, tags=["Authentication"])
+async def get_current_user_info(current_user: dict = Depends(require_auth)):
+    """Get current user information."""
+    return UserResponse(
+        id=current_user['user_id'],
+        username=current_user['username'],
+        email="",  # Don't expose email in this endpoint
+        role=current_user['role']
+    )
+
+
+@app.get("/users/preferences", response_model=UserPreferences, tags=["Users"])
+async def get_user_preferences(current_user: dict = Depends(require_auth)):
+    """Get current user preferences."""
+    prefs = user_db.get_user_preferences(current_user['user_id'])
+    return UserPreferences(**prefs)
+
+
+@app.post("/users/preferences", tags=["Users"])
+async def update_user_preferences(
+    preferences: UserPreferences,
+    current_user: dict = Depends(require_auth)
+):
+    """Update user preferences."""
+    success = user_db.update_user_preferences(
+        current_user['user_id'],
+        preferences.dict(exclude_none=True)
+    )
+    return {"success": success}
+
+
+@app.get("/users", tags=["Users"])
+async def list_users(current_user: dict = Depends(require_auth)):
+    """List all users (admin only)."""
+    if current_user['role'] != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    users = user_db.list_users()
+    return users
 
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
@@ -259,53 +438,223 @@ async def generate_gcode(request: GCodeGenerationRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.post("/gcode/upload-cad", response_model=GCodeGenerationResponse, tags=["G-code"])
-async def upload_cad_and_generate(
-    file: UploadFile = File(..., description="CAD file (.step, .igs, .dxf, .dwg)"),
+@app.post("/gcode/upload-dxf", response_model=DXFUploadResponse, tags=["G-code"])
+async def upload_dxf_and_generate(
+    file: UploadFile = File(..., description="DXF CAD file (.dxf)"),
     material: str = Form(default="45#钢", description="Material type"),
     machine_system: str = Form(default="FANUC", description="CNC control system"),
 ):
-    """Upload a CAD file and generate G-code."""
+    """Upload a DXF file and generate G-code with feature recognition."""
     # Validate file extension
-    allowed_extensions = [".step", ".stp", ".igs", ".ige", ".dxf", ".dwg"]
-    file_ext = Path(file.filename).suffix.lower()
-    
-    if file_ext not in allowed_extensions:
+    if not file.filename.lower().endswith(".dxf"):
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type: {file_ext}. Allowed: {allowed_extensions}"
+            detail=f"Unsupported file type: {file.filename}. Only .dxf files are supported."
         )
     
     # Save uploaded file temporarily
     temp_dir = Path("/tmp/cad2gcode")
     temp_dir.mkdir(parents=True, exist_ok=True)
-    temp_file = temp_dir / f"{uuid.uuid4()}{file_ext}"
+    temp_file = temp_dir / f"{uuid.uuid4()}.dxf"
     
     try:
         content = await file.read()
         temp_file.write_bytes(content)
         
-        logger.info(f"Saved uploaded file to: {temp_file}")
+        logger.info(f"Saved uploaded DXF to: {temp_file}")
         
-        # TODO: Implement CAD file parsing and feature recognition
-        # For now, return a sample program
-        gcode = generate_simple_shaft(
-            start_diameter=50.0,
-            end_diameter=30.0,
-            length=100.0,
+        # Step 1: Parse DXF file
+        parser = DXFParser()
+        geometry = parser.parse_file(str(temp_file))
+        
+        logger.info(f"Parsed DXF: {len(geometry.lines)} lines, {len(geometry.texts)} texts")
+        
+        # Step 2: Recognize machining features
+        feature_result = recognize_features(geometry)
+        
+        # Handle both dict and object return types
+        if isinstance(feature_result, dict):
+            features_list = feature_result.get('features', [])
+            feature_objects = []
+        else:
+            features_list = []
+            feature_objects = feature_result.features if hasattr(feature_result, 'features') else []
+        
+        # Convert feature objects to dicts if needed
+        if feature_objects and not features_list:
+            for feat in feature_objects:
+                feat_dict = {
+                    "id": feat.id,
+                    "type": feat.type.value,
+                    "priority": feat.priority,
+                    "parameters": feat.parameters,
+                    "machining_area": feat.machining_area
+                }
+                features_list.append(feat_dict)
+        
+        logger.info(f"Recognized {len(features_list)} features")
+        
+        # Step 3: Generate G-code based on recognized features
+        generator = GCodeGenerator(machine_system=machine_system)
+        part_name = Path(file.filename).stem
+        
+        # Generate header
+        program_name = f"O{uuid.uuid4().hex[:4].upper()}"
+        generator.generate_header(program_name=program_name, part_name=part_name)
+        
+        # Safety startup
+        generator._add_block("G21", "Metric units")
+        generator._add_block("G40 G97 G99", "Cancel compensation, constant RPM, feed per rev")
+        generator._add_block("G00 X0 Z5", "Rapid to start position")
+        
+        # Find maximum diameter for stock from features
+        max_diameter = 50.0
+        for feat in features_list:
+            if feat.get('type') == 'external_cylinder':
+                dia = feat.get('parameters', {}).get('diameter', 0)
+                if dia > max_diameter:
+                    max_diameter = dia
+        
+        total_length = 100.0
+        for feat in features_list:
+            params = feat.get('parameters', {})
+            z_end = abs(params.get('end_z', 0) or params.get('start_z', 0))
+            if z_end > total_length:
+                total_length = z_end
+        
+        stock_diameter = max_diameter + 5
+        
+        # Facing operation
+        generator._add_block("T0101 M06", "Face tool")
+        generator._add_block("S800 M03", "Spindle on CW")
+        generator._add_block(f"G00 X{stock_diameter} Z0 M08", "Rapid to facing start")
+        generator._add_block("G01 X-2 F0.2", "Face to center")
+        generator._add_block(f"G00 X{stock_diameter} Z2", "Retract")
+        
+        # Rough turning using G71 cycle
+        generator._add_block("T0202 M06", "Rough turning tool")
+        generator._add_block(f"G00 X{stock_diameter} Z2", "Rapid to cycle start")
+        generator._add_block("G71 U2.0 R0.5", "Rough cycle - depth of cut 2mm")
+        generator._add_block(f"G71 P10 Q20 U0.5 W0.2 F0.3", "Rough cycle - finish allowance 0.5mm")
+        
+        # Generate profile from features
+        generator._add_block("N10 G00 X0", "Start of profile")
+        
+        # Sort features by Z position (from 0 to negative)
+        sorted_features = sorted(
+            [f for f in features_list if f.get('type') in ['external_cylinder', 'taper']],
+            key=lambda f: abs(f.get('parameters', {}).get('end_z', 0) or f.get('parameters', {}).get('start_z', 0))
+        )
+        
+        current_x = 0
+        for i, feat in enumerate(sorted_features):
+            if feat.get('type') == 'external_cylinder':
+                params = feat.get('parameters', {})
+                dia = params.get('diameter', current_x * 2)
+                z_end = params.get('end_z', params.get('start_z', 0))
+                generator._add_block(
+                    f"G01 X{dia} Z{z_end} F0.2",
+                    f"Turn to Ø{dia}mm at Z{z_end}"
+                )
+                current_x = dia / 2
+            elif feat.get('type') == 'taper':
+                params = feat.get('parameters', {})
+                start_dia = params.get('start_diameter', current_x * 2)
+                end_dia = params.get('end_diameter', start_dia)
+                z_end = params.get('end_z', params.get('start_z', 0))
+                generator._add_block(
+                    f"G01 X{end_dia} Z{z_end} F0.2",
+                    f"Taper to Ø{end_dia}mm at Z{z_end}"
+                )
+                current_x = end_dia / 2
+        
+        generator._add_block(f"N20 G01 X{stock_diameter}", "End of profile")
+        
+        # Finish turning
+        generator._add_block("T0303 M06", "Finish turning tool")
+        generator._add_block("S1200 M03", "Higher speed for finish")
+        generator._add_block(f"G00 X{max_diameter} Z2", "Rapid to finish start")
+        generator._add_block("G70 P10 Q20 F0.1", "Finish cycle")
+        
+        # Groove operations (if any)
+        groove_features = [f for f in features_list if f.get('type') == 'groove']
+        if groove_features:
+            generator._add_block("T0404 M06", "Grooving tool")
+            for groove in groove_features:
+                params = groove.get('parameters', {})
+                width = params.get('width', 3.0)
+                depth = params.get('depth', 2.0)
+                pos_z = params.get('position_z', -40.0)
+                groove_dia = params.get('groove_diameter', 46.0)
+                
+                generator._add_block(f"S600 M03", "Lower speed for grooving")
+                generator._add_block(f"G00 X{groove_dia + 5} Z{pos_z}", "Position at groove")
+                generator._add_block(f"G01 X{groove_dia} F0.1", "Plunge to groove depth")
+                generator._add_block(f"G00 X{groove_dia + 5}", "Retract")
+        
+        # Thread operations (if any)
+        thread_features = [f for f in features_list if f.get('type') == 'thread']
+        if thread_features:
+            generator._add_block("T0505 M06", "Threading tool")
+            for thread in thread_features:
+                params = thread.get('parameters', {})
+                major_dia = params.get('major_diameter', 30.0)
+                minor_dia = params.get('minor_diameter', 28.0)
+                pitch = params.get('pitch', 1.5)
+                start_z = params.get('start_z', -43.0)
+                length = params.get('length', 20.0)
+                
+                generator._add_block(f"S400 M03", "Low speed for threading")
+                generator._add_block(f"G00 X{major_dia + 5} Z{start_z + 5}", "Rapid to thread start")
+                generator._add_block(
+                    f"G76 P020060 Q100 R0.05",
+                    "Threading cycle params"
+                )
+                thread_depth = int((major_dia - minor_dia) / 2 * 1000)
+                generator._add_block(
+                    f"G76 X{minor_dia:.3f} Z{start_z - length:.3f} P{thread_depth:04d} Q100 F{pitch:.3f}",
+                    f"Thread {params.get('designation', 'M30x1.5')}"
+                )
+        
+        # Program end
+        generator._add_block("G00 X100 Z100", "Rapid to change position")
+        generator.generate_footer()
+        
+        # Get G-code
+        gcode = generator.generate()
+        lines = gcode.split('\n')
+        
+        # Save to database
+        saved_id = gcode_db.save_program(
+            filename=f"{program_name}.nc",
+            content=gcode,
             material=material,
-            machine_system=machine_system
+            operations=[{"type": f.get('type'), "parameters": f.get('parameters', {})} for f in features_list],
+            metadata={
+                "source_file": file.filename,
+                "feature_count": len(features_list),
+                "machine_system": machine_system
+            }
         )
         
-        lines = gcode.split("\n")
+        logger.info(f"Generated and saved G-code program ID: {saved_id}")
         
-        return GCodeGenerationResponse(
+        return DXFUploadResponse(
             success=True,
-            program_name=f"O{uuid.uuid4().hex[:4].upper()}",
+            filename=file.filename,
+            features_count=len(features_list),
+            features=features_list,
             gcode=gcode,
-            lines=len(lines),
-            generated_at=datetime.now().isoformat()
+            gcode_lines=len(lines),
+            program_name=program_name,
+            message=f"Successfully processed {file.filename}: {len(features_list)} features recognized"
         )
+    
+    except Exception as e:
+        logger.error(f"Error processing DXF: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=400, detail=str(e))
     
     finally:
         # Cleanup
@@ -314,10 +663,17 @@ async def upload_cad_and_generate(
 
 
 @app.get("/programs", response_model=List[ProgramSummary], tags=["Programs"])
-async def list_programs(limit: int = 50, offset: int = 0):
-    """List all saved G-code programs with pagination."""
+async def list_programs(
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(require_auth)
+):
+    """List user's saved G-code programs with pagination."""
     try:
-        programs = gcode_db.list_programs(limit=limit, offset=offset)
+        # Only show user's own programs (admin can see all)
+        user_id = None if current_user['role'] == 'admin' else current_user['user_id']
+        
+        programs = gcode_db.list_programs(limit=limit, offset=offset, user_id=user_id)
         return [
             ProgramSummary(
                 id=p["id"],
@@ -330,6 +686,33 @@ async def list_programs(limit: int = 50, offset: int = 0):
         ]
     except Exception as e:
         logger.error(f"Error listing programs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/programs/search", tags=["Programs"])
+async def search_programs(
+    q: str,
+    limit: int = 20,
+    current_user: dict = Depends(require_auth)
+):
+    """Search user's programs by filename or material."""
+    try:
+        # Only search user's own programs (admin can search all)
+        user_id = None if current_user['role'] == 'admin' else current_user['user_id']
+        
+        programs = gcode_db.search_programs(query=q, limit=limit, user_id=user_id)
+        return [
+            {
+                "id": p["id"],
+                "filename": f"{p['program_name']}.nc",
+                "material": p["material"],
+                "created_at": p["created_at"],
+                "operation_count": 0  # Simplified for search results
+            }
+            for p in programs
+        ]
+    except Exception as e:
+        logger.error(f"Error searching programs: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -377,6 +760,54 @@ async def download_program(program_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/programs/{program_id}/export/pdf", tags=["Export"])
+async def export_program_pdf(program_id: int, current_user: dict = Depends(require_auth)):
+    """Export program as PDF process sheet."""
+    try:
+        program = gcode_db.get_program(program_id)
+        if not program:
+            raise HTTPException(status_code=404, detail=f"Program {program_id} not found")
+        
+        # Check ownership (admin can export any program)
+        if current_user['role'] != 'admin' and program.get('user_id') != current_user['user_id']:
+            raise HTTPException(status_code=403, detail="You don't have permission to export this program")
+        
+        exporter = get_exporter()
+        pdf_bytes = exporter.generate_pdf(program)
+        
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{program["filename"].replace(".nc", "")}_process_sheet.pdf"'
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting PDF for program {program_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/programs/{program_id}/export/html", tags=["Export"])
+async def export_program_html(program_id: int):
+    """Export program as HTML process sheet."""
+    try:
+        program = gcode_db.get_program(program_id)
+        if not program:
+            raise HTTPException(status_code=404, detail=f"Program {program_id} not found")
+        
+        exporter = get_exporter()
+        html_content = exporter.generate_html(program)
+        
+        return HTMLResponse(content=html_content)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting HTML for program {program_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.delete("/programs/{program_id}", tags=["Programs"])
 async def delete_program(program_id: int):
     """Delete a G-code program."""
@@ -392,19 +823,71 @@ async def delete_program(program_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.put("/programs/{program_id}/content", tags=["Programs"])
+async def update_program_content(
+    program_id: int,
+    request: dict,
+    current_user: dict = Depends(require_auth)
+):
+    """Update G-code program content (user-specific)."""
+    try:
+        content = request.get('content', '')
+        if not content:
+            raise HTTPException(status_code=400, detail="Content is required")
+        
+        # Check if program exists and belongs to user (or user is admin)
+        conn = gcode_db._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id FROM programs WHERE id = ?", (program_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"Program {program_id} not found")
+        
+        # Check ownership (admin can edit any program)
+        if current_user['role'] != 'admin' and row[0] != current_user['user_id']:
+            conn.close()
+            raise HTTPException(status_code=403, detail="You don't have permission to edit this program")
+        
+        # Update content
+        cursor.execute("""
+            UPDATE programs SET content = ? WHERE id = ?
+        """, (content, program_id))
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Updated program {program_id} content, user: {current_user['username']}")
+        
+        return {
+            "success": True,
+            "program_id": program_id,
+            "message": f"Program {program_id} content updated successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating program {program_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/programs", response_model=SaveProgramResponse, tags=["Programs"])
-async def save_program(request: SaveProgramRequest):
-    """Save a G-code program to the database."""
+async def save_program(
+    request: SaveProgramRequest,
+    current_user: dict = Depends(require_auth)
+):
+    """Save a G-code program to the database (user-specific)."""
     try:
         saved_id = gcode_db.save_program(
             filename=request.filename,
             content=request.content,
             material=request.material,
             operations=request.operations or [],
-            metadata=request.metadata
+            metadata=request.metadata,
+            user_id=current_user['user_id']
         )
         
-        logger.info(f"Saved G-code program ID: {saved_id}, filename: {request.filename}")
+        logger.info(f"Saved G-code program ID: {saved_id}, filename: {request.filename}, user: {current_user['username']}")
         
         return SaveProgramResponse(
             success=True,
@@ -458,6 +941,21 @@ async def list_machine_systems():
             "m_codes": data.get('m_codes', {}),
         })
     return {"systems": systems}
+
+
+# Mount static files
+static_path = Path(__file__).parent / "static"
+if static_path.exists():
+    app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
+
+
+@app.get("/web", tags=["Web UI"])
+async def serve_web_ui():
+    """Serve the web UI."""
+    index_path = static_path / "index.html"
+    if index_path.exists():
+        return FileResponse(str(index_path))
+    raise HTTPException(status_code=404, detail="Web UI not found")
 
 
 # ==================== Error Handlers ====================
