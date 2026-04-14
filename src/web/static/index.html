@@ -1,0 +1,1614 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CAD to G-code Platform - 数控车床编程系统</title>
+    <!-- Monaco Editor -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 968px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #f8f9ff;
+        }
+
+        .upload-area:hover {
+            background: #eef1ff;
+            border-color: #764ba2;
+        }
+
+        .upload-area.dragover {
+            background: #e0e4ff;
+            border-color: #764ba2;
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 3em;
+            margin-bottom: 15px;
+        }
+
+        .upload-text {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .upload-hint {
+            color: #999;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .options-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            color: #555;
+            font-weight: 600;
+            margin-bottom: 5px;
+            font-size: 0.95em;
+        }
+
+        .form-group select,
+        .form-group input {
+            width: 100%;
+            padding: 10px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+
+        .form-group select:focus,
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+            margin-top: 20px;
+            font-weight: 600;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .features-list {
+            list-style: none;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .feature-item {
+            background: #f8f9ff;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+        }
+
+        .feature-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .feature-type {
+            font-weight: bold;
+            color: #667eea;
+            font-size: 1.1em;
+        }
+
+        .feature-id {
+            color: #999;
+            font-size: 0.9em;
+        }
+
+        .feature-params {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 5px;
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .gcode-display {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+            line-height: 1.5;
+            max-height: 500px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        /* Monaco Editor Container */
+        #monaco-editor-container {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1000;
+            background: rgba(0, 0, 0, 0.8);
+        }
+
+        #monaco-editor-container.active {
+            display: block;
+        }
+
+        #monaco-editor-wrapper {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90%;
+            height: 85%;
+            background: #1e1e1e;
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+        }
+
+        #monaco-editor {
+            width: 100%;
+            height: calc(100% - 60px);
+        }
+
+        .monaco-toolbar {
+            height: 60px;
+            background: #252526;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            border-bottom: 1px solid #3c3c3c;
+        }
+
+        .monaco-toolbar h3 {
+            color: #d4d4d4;
+            font-size: 1em;
+            margin: 0;
+        }
+
+        .monaco-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .monaco-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.2s;
+        }
+
+        .monaco-btn-save {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .monaco-btn-save:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .monaco-btn-close {
+            background: #444;
+            color: white;
+        }
+
+        .monaco-btn-close:hover {
+            background: #555;
+        }
+
+        .gcode-line {
+            display: block;
+        }
+
+        .gcode-comment {
+            color: #6a9955;
+            font-style: italic;
+        }
+
+        .gcode-program {
+            color: #dcdcaa;
+            font-weight: bold;
+        }
+
+        .gcode-linenum {
+            color: #808080;
+        }
+
+        .gcode-gcode {
+            color: #569cd6;
+            font-weight: bold;
+        }
+
+        .gcode-mcode {
+            color: #c586c0;
+            font-weight: bold;
+        }
+
+        .gcode-tcode {
+            color: #dcdcaa;
+        }
+
+        .gcode-scode {
+            color: #b5cea8;
+        }
+
+        .gcode-fcode {
+            color: #d19a66;
+        }
+
+        .gcode-coord {
+            color: #4ec9b0;
+            font-weight: 600;
+        }
+
+        .gcode-param {
+            color: #9cdcfe;
+        }
+
+        .status-bar {
+            background: white;
+            border-radius: 10px;
+            padding: 15px 25px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-label {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .status-value {
+            font-weight: bold;
+            color: #333;
+            font-size: 1.1em;
+        }
+
+        .success-badge {
+            background: #4caf50;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+
+        .error-badge {
+            background: #f44336;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .download-btn {
+            background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+            margin-top: 15px;
+        }
+
+        .download-btn:hover {
+            box-shadow: 0 5px 20px rgba(76, 175, 80, 0.4);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .empty-state-icon {
+            font-size: 3em;
+            margin-bottom: 15px;
+        }
+
+        .history-list {
+            list-style: none;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .history-item {
+            background: #f8f9ff;
+            border-left: 4px solid #764ba2;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .history-item:hover {
+            background: #eef1ff;
+            transform: translateX(5px);
+        }
+
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .history-filename {
+            font-weight: bold;
+            color: #764ba2;
+            font-size: 1em;
+        }
+
+        .history-time {
+            color: #999;
+            font-size: 0.85em;
+        }
+
+        .history-meta {
+            display: flex;
+            gap: 15px;
+            font-size: 0.85em;
+            color: #666;
+        }
+
+        .history-badge {
+            background: #667eea;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.8em;
+        }
+
+        .refresh-btn {
+            background: transparent;
+            border: 2px solid #667eea;
+            color: #667eea;
+            padding: 8px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.2s;
+        }
+
+        .refresh-btn:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        .delete-btn {
+            background: #f44336;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.2s;
+            opacity: 0;
+        }
+
+        .history-item:hover .delete-btn {
+            opacity: 1;
+        }
+
+        .delete-btn:hover {
+            background: #d32f2f;
+            transform: scale(1.05);
+        }
+
+        .tab-container {
+            margin-top: 20px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .tab-btn {
+            background: #f0f0f0;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.95em;
+            transition: all 0.2s;
+        }
+
+        .tab-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔧 CAD to G-code Platform</h1>
+            <p>AI 驱动的数控车床自动编程系统 - 从 DXF 图纸到 G 代码</p>
+        </header>
+
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-label">API 状态:</span>
+                <span class="status-value" id="apiStatus">检查中...</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">已保存程序:</span>
+                <span class="status-value" id="programCount">-</span>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <!-- Upload Section -->
+            <div class="card">
+                <h2>📤 上传 DXF 文件</h2>
+                
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📄</div>
+                    <div class="upload-text">点击或拖拽上传 DXF 文件</div>
+                    <div class="upload-hint">支持车削零件轮廓图 (.dxf) - 可多选</div>
+                </div>
+                <input type="file" id="fileInput" accept=".dxf" multiple>
+                
+                <div class="form-group" style="margin-top: 20px;">
+                    <label for="material">材料类型</label>
+                    <select id="material">
+                        <option value="45#钢">45# 钢 (中碳钢)</option>
+                        <option value="铝合金">铝合金</option>
+                        <option value="不锈钢">不锈钢</option>
+                        <option value="铸铁">铸铁</option>
+                        <option value="铜合金">铜合金</option>
+                        <option value="钛合金">钛合金</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="machineSystem">数控系统</label>
+                    <select id="machineSystem">
+                        <option value="FANUC">FANUC (发那科)</option>
+                        <option value="Siemens">Siemens (西门子)</option>
+                        <option value="Mitsubishi">Mitsubishi (三菱)</option>
+                    </select>
+                </div>
+
+                <button class="btn" id="generateBtn" disabled>
+                    🚀 生成 G 代码
+                </button>
+
+                <!-- Batch Upload Progress -->
+                <div id="batchProgress" style="margin-top: 15px; display: none;">
+                    <div style="background: #f0f0f0; border-radius: 8px; padding: 15px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                            <span style="font-weight: 600; color: #667eea;">📦 批量处理中...</span>
+                            <span id="batchProgressText">0/0</span>
+                        </div>
+                        <div style="background: #e0e0e0; border-radius: 4px; height: 8px; overflow: hidden;">
+                            <div id="batchProgressBar" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                        </div>
+                        <div id="batchStatusList" style="margin-top: 10px; max-height: 150px; overflow-y: auto; font-size: 0.85em;"></div>
+                    </div>
+                </div>
+
+                <div id="uploadStatus" style="margin-top: 15px;"></div>
+            </div>
+
+            <!-- Features Section -->
+            <div class="card">
+                <h2>🎯 识别的加工特征</h2>
+                
+                <!-- DXF Preview Canvas -->
+                <div id="dxfPreviewContainer" style="margin-bottom: 15px; display: none;">
+                    <h3 style="color: #764ba2; font-size: 1em; margin-bottom: 10px;">📐 DXF 轮廓预览</h3>
+                    <canvas id="dxfPreview" width="400" height="250" style="width: 100%; height: 250px; background: #f8f9ff; border: 2px solid #e0e0e0; border-radius: 8px;"></canvas>
+                </div>
+                
+                <div class="tab-container">
+                    <div class="tabs">
+                        <button class="tab-btn active" onclick="switchTab('features')">当前特征</button>
+                        <button class="tab-btn" onclick="switchTab('history')">程序历史</button>
+                    </div>
+                    
+                    <div id="featuresContent" class="tab-content active">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">🔍</div>
+                            <div>上传 DXF 文件后自动识别加工特征</div>
+                        </div>
+                    </div>
+                    
+                    <div id="historyContent" class="tab-content">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h3 style="color: #764ba2; font-size: 1.1em;">已保存的程序</h3>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <input type="text" id="searchInput" placeholder="🔍 搜索程序..." style="padding: 8px 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 0.9em; outline: none; transition: border-color 0.2s;" onkeyup="if(event.key === 'Enter') searchPrograms()">
+                                <button class="refresh-btn" onclick="loadProgramHistory()">🔄 刷新</button>
+                            </div>
+                        </div>
+                        <ul class="history-list" id="historyList">
+                            <li class="empty-state">
+                                <div class="loading-spinner"></div>
+                                加载中...
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- G-code Display -->
+        <div class="card">
+            <h2>⚙️ G 代码程序</h2>
+            <div id="gcodeContent">
+                <div class="empty-state">
+                    <div class="empty-state-icon">📝</div>
+                    <div>生成的 G 代码将显示在这里</div>
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap;">
+                <button class="btn download-btn" id="downloadBtn" style="display: none;">
+                    💾 下载 .nc 文件
+                </button>
+                <button class="btn" id="editBtn" style="display: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;" onclick="openEditor()">
+                    ✏️ 在线编辑
+                </button>
+                <button class="btn" id="exportPdfBtn" style="display: none; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white;" onclick="exportPDF()">
+                    📄 导出 PDF
+                </button>
+                <button class="btn" id="exportHtmlBtn" style="display: none; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white;" onclick="exportHTML()">
+                    🌐 导出 HTML
+                </button>
+            </div>
+        </div>
+
+        <!-- Monaco Editor Modal -->
+        <div id="monaco-editor-container">
+            <div id="monaco-editor-wrapper">
+                <div class="monaco-toolbar">
+                    <h3>✏️ 编辑 G 代码 - <span id="editor-filename">O0001.nc</span></h3>
+                    <div class="monaco-actions">
+                        <button class="monaco-btn monaco-btn-save" onclick="saveGCode()">💾 保存修改</button>
+                        <button class="monaco-btn monaco-btn-close" onclick="closeEditor()">❌ 关闭</button>
+                    </div>
+                </div>
+                <div id="monaco-editor"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let selectedFiles = [];
+        let currentGCode = '';
+        let currentProgramName = '';
+        let allPrograms = [];
+
+        // Elements
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const generateBtn = document.getElementById('generateBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const featuresContent = document.getElementById('featuresContent');
+        const historyContent = document.getElementById('historyContent');
+        const historyList = document.getElementById('historyList');
+        const gcodeContent = document.getElementById('gcodeContent');
+        const uploadStatus = document.getElementById('uploadStatus');
+        const apiStatus = document.getElementById('apiStatus');
+        const programCount = document.getElementById('programCount');
+        const batchProgress = document.getElementById('batchProgress');
+        const batchProgressBar = document.getElementById('batchProgressBar');
+        const batchProgressText = document.getElementById('batchProgressText');
+        const batchStatusList = document.getElementById('batchStatusList');
+
+        // Tab switching
+        function switchTab(tabName) {
+            const tabs = document.querySelectorAll('.tab-btn');
+            const contents = document.querySelectorAll('.tab-content');
+            
+            tabs.forEach(tab => tab.classList.remove('active'));
+            contents.forEach(content => content.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(`${tabName}Content`).classList.add('active');
+            
+            if (tabName === 'history') {
+                loadProgramHistory();
+            }
+        }
+
+        // Load program history
+        async function loadProgramHistory() {
+            try {
+                const response = await fetch('/programs');
+                const programs = await response.json();
+                allPrograms = programs;
+                
+                if (!programs || programs.length === 0) {
+                    historyList.innerHTML = `
+                        <li class="empty-state">
+                            <div class="empty-state-icon">📝</div>
+                            <div>暂无已保存的程序</div>
+                        </li>
+                    `;
+                    return;
+                }
+                
+                let html = '';
+                programs.forEach(prog => {
+                    const date = new Date(prog.created_at);
+                    const timeStr = date.toLocaleString('zh-CN', { 
+                        month: '2-digit', 
+                        day: '2-digit', 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                    });
+                    
+                    html += `
+                        <li class="history-item" onclick="loadProgram(${prog.id})">
+                            <div class="history-header">
+                                <span class="history-filename">${escapeHtml(prog.filename)}</span>
+                                <span class="history-time">${timeStr}</span>
+                            </div>
+                            <div class="history-meta">
+                                <span class="history-badge">${escapeHtml(prog.material)}</span>
+                                <span>🔧 ${prog.operation_count} 个工序</span>
+                                <button class="delete-btn" onclick="event.stopPropagation(); deleteProgram(${prog.id}, '${escapeHtml(prog.filename)}')">🗑️ 删除</button>
+                            </div>
+                        </li>
+                    `;
+                });
+                
+                historyList.innerHTML = html;
+            } catch (error) {
+                console.error('Error loading history:', error);
+                historyList.innerHTML = `
+                    <li class="empty-state">
+                        <div class="empty-state-icon">⚠️</div>
+                        <div>加载失败：${error.message}</div>
+                    </li>
+                `;
+            }
+        }
+
+        // Load specific program
+        async function loadProgram(programId) {
+            try {
+                const response = await fetch(`/programs/${programId}`);
+                const program = await response.json();
+                
+                currentGCode = program.content;
+                currentProgramName = program.filename.replace('.nc', '');
+                editingProgramId = programId;
+                currentFilename = program.filename;
+                
+                displayGCode(program.content);
+                downloadBtn.style.display = 'block';
+                editBtn.style.display = 'block';
+                exportPdfBtn.style.display = 'block';
+                exportHtmlBtn.style.display = 'block';
+                
+                // Switch to G-code view
+                gcodeContent.scrollIntoView({ behavior: 'smooth' });
+                
+                showUploadStatus(`✓ 已加载程序：${program.filename}`, 'success');
+            } catch (error) {
+                console.error('Error loading program:', error);
+                showUploadStatus(`❌ 加载失败：${error.message}`, 'error');
+            }
+        }
+
+        // Export PDF
+        async function exportPDF() {
+            if (!editingProgramId) {
+                alert('没有可导出的程序');
+                return;
+            }
+
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                alert('请先登录');
+                showLoginModal();
+                return;
+            }
+
+            try {
+                const response = await fetch(`/programs/${editingProgramId}/export/pdf`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${currentProgramName}_process_sheet.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    alert('✅ PDF 工艺单已导出！');
+                } else {
+                    const error = await response.json();
+                    alert(`❌ 导出失败：${error.detail || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('Export PDF error:', error);
+                alert('❌ 导出失败，请检查网络连接');
+            }
+        }
+
+        // Export HTML
+        function exportHTML() {
+            if (!editingProgramId) {
+                alert('没有可导出的程序');
+                return;
+            }
+
+            // Open in new tab
+            window.open(`/programs/${editingProgramId}/export/html`, '_blank');
+        }
+
+        // Delete program
+        async function deleteProgram(programId, filename) {
+            if (!confirm(`确定要删除程序 "${filename}" 吗？此操作不可恢复。`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/programs/${programId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || '删除失败');
+                }
+                
+                showUploadStatus(`✓ 程序已删除：${filename}`, 'success');
+                loadProgramHistory(); // Refresh list
+                checkAPI(); // Update count
+            } catch (error) {
+                console.error('Error deleting program:', error);
+                showUploadStatus(`❌ 删除失败：${error.message}`, 'error');
+            }
+        }
+
+        // Search programs
+        async function searchPrograms() {
+            const query = document.getElementById('searchInput').value.trim();
+            
+            if (!query) {
+                loadProgramHistory(); // Show all if empty query
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/programs/search?q=${encodeURIComponent(query)}`);
+                const programs = await response.json();
+                allPrograms = programs;
+                
+                if (!programs || programs.length === 0) {
+                    historyList.innerHTML = `
+                        <li class="empty-state">
+                            <div class="empty-state-icon">🔍</div>
+                            <div>未找到匹配的程序</div>
+                        </li>
+                    `;
+                    return;
+                }
+                
+                let html = '';
+                programs.forEach(prog => {
+                    const date = new Date(prog.created_at);
+                    const timeStr = date.toLocaleString('zh-CN', { 
+                        month: '2-digit', 
+                        day: '2-digit', 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                    });
+                    
+                    html += `
+                        <li class="history-item" onclick="loadProgram(${prog.id})">
+                            <div class="history-header">
+                                <span class="history-filename">${escapeHtml(prog.filename)}</span>
+                                <span class="history-time">${timeStr}</span>
+                            </div>
+                            <div class="history-meta">
+                                <span class="history-badge">${escapeHtml(prog.material)}</span>
+                                <span>🔧 ${prog.operation_count} 个工序</span>
+                                <button class="delete-btn" onclick="event.stopPropagation(); deleteProgram(${prog.id}, '${escapeHtml(prog.filename)}')">🗑️ 删除</button>
+                            </div>
+                        </li>
+                    `;
+                });
+                
+                historyList.innerHTML = html;
+            } catch (error) {
+                console.error('Error searching programs:', error);
+                historyList.innerHTML = `
+                    <li class="empty-state">
+                        <div class="empty-state-icon">⚠️</div>
+                        <div>搜索失败：${error.message}</div>
+                    </li>
+                `;
+            }
+        }
+
+        // Check API health on load
+        async function checkAPI() {
+            try {
+                const response = await fetch('/health');
+                const data = await response.json();
+                apiStatus.innerHTML = `<span class="success-badge">✓ 在线 v${data.version}</span>`;
+                programCount.textContent = data.programs_count || 0;
+            } catch (error) {
+                apiStatus.innerHTML = '<span class="error-badge">✗ 离线</span>';
+                console.error('API health check failed:', error);
+            }
+        }
+
+        // File upload handling
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0 && files[0].name.toLowerCase().endsWith('.dxf')) {
+                handleFileSelect(files[0]);
+            } else {
+                showUploadStatus('❌ 请上传 .dxf 格式的文件', 'error');
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileSelect(Array.from(e.target.files));
+            }
+        });
+
+        function handleFileSelect(files) {
+            selectedFiles = files;
+            
+            if (files.length === 1) {
+                uploadArea.querySelector('.upload-text').textContent = `✓ ${files[0].name}`;
+                uploadArea.querySelector('.upload-icon').textContent = '✅';
+                showUploadStatus(`已选择：${files[0].name} (${(files[0].size / 1024).toFixed(1)} KB)`, 'success');
+            } else {
+                const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+                uploadArea.querySelector('.upload-text').textContent = `✓ 已选择 ${files.length} 个文件`;
+                uploadArea.querySelector('.upload-icon').textContent = '📚';
+                showUploadStatus(`已选择 ${files.length} 个文件，总计 ${(totalSize / 1024).toFixed(1)} KB`, 'success');
+            }
+            
+            generateBtn.disabled = false;
+        }
+
+        function showUploadStatus(message, type) {
+            uploadStatus.innerHTML = `<div style="color: ${type === 'error' ? '#f44336' : '#4caf50'}; font-weight: 600;">${message}</div>`;
+        }
+
+        // Generate G-code
+        generateBtn.addEventListener('click', async () => {
+            if (selectedFiles.length === 0) return;
+
+            generateBtn.disabled = true;
+            
+            const material = document.getElementById('material').value;
+            const machineSystem = document.getElementById('machineSystem').value;
+
+            if (selectedFiles.length === 1) {
+                // Single file processing
+                generateBtn.innerHTML = '<span class="loading-spinner"></span>处理中...';
+                await processSingleFile(selectedFiles[0], material, machineSystem);
+            } else {
+                // Batch processing
+                batchProgress.style.display = 'block';
+                generateBtn.innerHTML = '<span class="loading-spinner"></span>批量处理中...';
+                await processBatchFiles(selectedFiles, material, machineSystem);
+            }
+
+            generateBtn.disabled = false;
+            generateBtn.innerHTML = '🚀 生成 G 代码';
+        });
+
+        // Process single file
+        async function processSingleFile(file, material, machineSystem) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('material', material);
+            formData.append('machine_system', machineSystem);
+
+            try {
+                const response = await fetch('/gcode/upload-dxf', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || '处理失败');
+                }
+
+                const result = await response.json();
+                
+                // Display features
+                displayFeatures(result.features);
+                
+                // Display G-code
+                currentGCode = result.gcode;
+                currentProgramName = result.program_name;
+                displayGCode(result.gcode);
+                
+                // Show download button
+                downloadBtn.style.display = 'block';
+                
+                // Update status
+                showUploadStatus(`✓ ${result.message}`, 'success');
+                
+                // Refresh program count
+                checkAPI();
+
+            } catch (error) {
+                console.error('Error generating G-code:', error);
+                showUploadStatus(`❌ 错误：${error.message}`, 'error');
+                featuresContent.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">⚠️</div>
+                        <div>${error.message}</div>
+                    </div>
+                `;
+            }
+        }
+
+        // Process batch files
+        async function processBatchFiles(files, material, machineSystem) {
+            let successCount = 0;
+            let failCount = 0;
+            let statusHtml = '';
+            
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('material', material);
+                formData.append('machine_system', machineSystem);
+
+                try {
+                    const response = await fetch('/gcode/upload-dxf', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail || '处理失败');
+                    }
+
+                    const result = await response.json();
+                    successCount++;
+                    
+                    statusHtml += `<div style="color: #4caf50; margin: 5px 0;">✓ ${file.name} - ${result.features_count} 个特征</div>`;
+                    
+                    // Update progress bar
+                    const progress = ((i + 1) / files.length) * 100;
+                    batchProgressBar.style.width = `${progress}%`;
+                    batchProgressText.textContent = `${i + 1}/${files.length}`;
+                    batchStatusList.innerHTML = statusHtml;
+                    batchStatusList.scrollTop = batchStatusList.scrollHeight;
+
+                } catch (error) {
+                    failCount++;
+                    statusHtml += `<div style="color: #f44336; margin: 5px 0;">❌ ${file.name} - ${error.message}</div>`;
+                    batchStatusList.innerHTML = statusHtml;
+                    batchStatusList.scrollTop = batchStatusList.scrollHeight;
+                }
+            }
+
+            // Final summary
+            const summary = `批量处理完成：成功 ${successCount} 个，失败 ${failCount} 个`;
+            showUploadStatus(summary, failCount > 0 ? 'error' : 'success');
+            
+            // Hide batch progress after delay
+            setTimeout(() => {
+                batchProgress.style.display = 'none';
+            }, 5000);
+            
+            // Refresh program count
+            checkAPI();
+        }
+
+        function displayFeatures(features) {
+            if (!features || features.length === 0) {
+                featuresContent.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">⚠️</div>
+                        <div>未识别到加工特征</div>
+                    </div>
+                `;
+                return;
+            }
+
+            const typeNames = {
+                'external_cylinder': '外圆',
+                'taper': '锥度',
+                'groove': '切槽',
+                'thread': '螺纹'
+            };
+
+            const typeIcons = {
+                'external_cylinder': '🔵',
+                'taper': '🔺',
+                'groove': '▭',
+                'thread': '〰️'
+            };
+
+            let html = '<ul class="features-list">';
+            
+            features.forEach(feat => {
+                const typeName = typeNames[feat.type] || feat.type;
+                const icon = typeIcons[feat.type] || '📌';
+                
+                let paramsHtml = '';
+                if (feat.type === 'external_cylinder') {
+                    paramsHtml = `
+                        <div>直径：${feat.parameters.diameter}mm</div>
+                        <div>长度：${Math.abs(feat.parameters.end_z - feat.parameters.start_z)}mm</div>
+                    `;
+                } else if (feat.type === 'taper') {
+                    paramsHtml = `
+                        <div>大径：${feat.parameters.start_diameter}mm</div>
+                        <div>小径：${feat.parameters.end_diameter}mm</div>
+                        <div>角度：${(feat.parameters.angle || 0).toFixed(1)}°</div>
+                    `;
+                } else if (feat.type === 'groove') {
+                    paramsHtml = `
+                        <div>宽度：${feat.parameters.width}mm</div>
+                        <div>深度：${feat.parameters.depth}mm</div>
+                        <div>位置：Z${feat.parameters.position_z}</div>
+                    `;
+                } else if (feat.type === 'thread') {
+                    paramsHtml = `
+                        <div>规格：${feat.parameters.designation}</div>
+                        <div>螺距：${feat.parameters.pitch}mm</div>
+                        <div>长度：${feat.parameters.length}mm</div>
+                    `;
+                }
+
+                html += `
+                    <li class="feature-item">
+                        <div class="feature-header">
+                            <span class="feature-type">${icon} ${typeName}</span>
+                            <span class="feature-id">${feat.id}</span>
+                        </div>
+                        <div class="feature-params">
+                            ${paramsHtml}
+                        </div>
+                    </li>
+                `;
+            });
+            
+            html += '</ul>';
+            featuresContent.innerHTML = html;
+            
+            // Draw DXF preview
+            drawDXFPreview(features);
+        }
+
+        // Draw DXF profile preview on canvas
+        function drawDXFPreview(features) {
+            const container = document.getElementById('dxfPreviewContainer');
+            const canvas = document.getElementById('dxfPreview');
+            
+            if (!features || features.length === 0) {
+                container.style.display = 'none';
+                return;
+            }
+            
+            container.style.display = 'block';
+            
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, width, height);
+            
+            // Find bounds
+            let minX = Infinity, maxX = 0, minZ = Infinity, maxZ = 0;
+            
+            features.forEach(feat => {
+                if (feat.type === 'external_cylinder' || feat.type === 'taper') {
+                    const dia = feat.type === 'external_cylinder' ? feat.parameters.diameter : feat.parameters.start_diameter;
+                    const z1 = feat.parameters.start_z;
+                    const z2 = feat.parameters.end_z;
+                    
+                    minX = Math.min(minX, 0);
+                    maxX = Math.max(maxX, dia);
+                    minZ = Math.min(minZ, z1, z2);
+                    maxZ = Math.max(maxZ, z1, z2);
+                } else if (feat.type === 'groove') {
+                    const dia = feat.parameters.groove_diameter || 0;
+                    const posZ = feat.parameters.position_z;
+                    const width_groove = feat.parameters.width || 3;
+                    
+                    minX = Math.min(minX, 0);
+                    maxX = Math.max(maxX, dia);
+                    minZ = Math.min(minZ, posZ);
+                    maxZ = Math.max(maxZ, posZ + width_groove);
+                } else if (feat.type === 'thread') {
+                    const majorDia = feat.parameters.major_diameter || 0;
+                    const startZ = feat.parameters.start_z;
+                    const length = feat.parameters.length || 0;
+                    
+                    minX = Math.min(minX, 0);
+                    maxX = Math.max(maxX, majorDia);
+                    minZ = Math.min(minZ, startZ);
+                    maxZ = Math.max(maxZ, startZ + length);
+                }
+            });
+            
+            // Add padding
+            const padding = 40;
+            const drawWidth = width - padding * 2;
+            const drawHeight = height - padding * 2;
+            
+            // Calculate scale
+            const rangeX = maxX - minX || 1;
+            const rangeZ = maxZ - minZ || 1;
+            const scaleX = drawWidth / rangeX;
+            const scaleY = drawHeight / rangeZ;
+            const scale = Math.min(scaleX, scaleY);
+            
+            // Transform function
+            function transform(x, z) {
+                return {
+                    x: padding + (x - minX) * scale,
+                    y: height - padding - (z - minZ) * scale
+                };
+            }
+            
+            // Draw center line
+            const centerStart = transform(0, minZ);
+            const centerEnd = transform(0, maxZ);
+            ctx.beginPath();
+            ctx.setLineDash([5, 5]);
+            ctx.strokeStyle = '#999';
+            ctx.lineWidth = 1;
+            ctx.moveTo(centerStart.x, centerStart.y);
+            ctx.lineTo(centerEnd.x, centerEnd.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // Draw profile
+            ctx.beginPath();
+            ctx.strokeStyle = '#667eea';
+            ctx.lineWidth = 2;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            
+            let started = false;
+            
+            features.sort((a, b) => {
+                const z1 = a.parameters?.start_z || 0;
+                const z2 = b.parameters?.start_z || 0;
+                return z1 - z2;
+            });
+            
+            features.forEach(feat => {
+                if (feat.type === 'external_cylinder') {
+                    const dia = feat.parameters.diameter;
+                    const z1 = feat.parameters.start_z;
+                    const z2 = feat.parameters.end_z;
+                    
+                    const p1 = transform(dia / 2, z1);
+                    const p2 = transform(dia / 2, z2);
+                    
+                    if (!started) {
+                        ctx.moveTo(p1.x, p1.y);
+                        started = true;
+                    } else {
+                        ctx.lineTo(p1.x, p1.y);
+                    }
+                    ctx.lineTo(p2.x, p2.y);
+                } else if (feat.type === 'taper') {
+                    const dia1 = feat.parameters.start_diameter;
+                    const dia2 = feat.parameters.end_diameter;
+                    const z1 = feat.parameters.start_z;
+                    const z2 = feat.parameters.end_z;
+                    
+                    const p1 = transform(dia1 / 2, z1);
+                    const p2 = transform(dia2 / 2, z2);
+                    
+                    if (!started) {
+                        ctx.moveTo(p1.x, p1.y);
+                        started = true;
+                    } else {
+                        ctx.lineTo(p1.x, p1.y);
+                    }
+                    ctx.lineTo(p2.x, p2.y);
+                }
+            });
+            
+            ctx.stroke();
+            
+            // Draw dimension labels
+            ctx.fillStyle = '#666';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'right';
+            ctx.fillText(`Ø${maxX.toFixed(1)}`, padding - 5, transform(maxX / 2, minZ).y);
+            ctx.fillText(`Z: ${(maxZ - minZ).toFixed(1)}mm`, width - padding + 5, transform(0, maxZ).y);
+        }
+
+        function displayGCode(gcode) {
+            const lines = gcode.split('\n');
+            let html = '<div class="gcode-display">';
+            
+            lines.forEach(line => {
+                let formattedLine = escapeHtml(line);
+                
+                // Highlight comments (parentheses)
+                formattedLine = formattedLine.replace(/\(([^)]*)\)/g, '<span class="gcode-comment">($1)</span>');
+                
+                // Highlight semicolon comments
+                formattedLine = formattedLine.replace(/(;[^)]*)$/, '<span class="gcode-comment">$1</span>');
+                
+                // Highlight program number (O followed by numbers at start)
+                formattedLine = formattedLine.replace(/^([O][0-9]+)/, '<span class="gcode-program">$1</span>');
+                
+                // Highlight G codes (motion and setup commands)
+                formattedLine = formattedLine.replace(/\b(G[0-9]+)\b/g, '<span class="gcode-gcode">$1</span>');
+                
+                // Highlight M codes (miscellaneous functions)
+                formattedLine = formattedLine.replace(/\b(M[0-9]+)\b/g, '<span class="gcode-mcode">$1</span>');
+                
+                // Highlight T codes (tool selection)
+                formattedLine = formattedLine.replace(/\b(T[0-9]+)\b/g, '<span class="gcode-tcode">$1</span>');
+                
+                // Highlight S codes (spindle speed)
+                formattedLine = formattedLine.replace(/\b(S[0-9]+)\b/g, '<span class="gcode-scode">$1</span>');
+                
+                // Highlight F codes (feed rate)
+                formattedLine = formattedLine.replace(/\b(F[0-9.]+)\b/g, '<span class="gcode-fcode">$1</span>');
+                
+                // Highlight coordinate values (X, Y, Z axis)
+                formattedLine = formattedLine.replace(/\b([XYZ][+-]?[0-9.]+)\b/g, '<span class="gcode-coord">$1</span>');
+                
+                // Highlight other parameters (I, J, K, R, Q, P, etc.)
+                formattedLine = formattedLine.replace(/\b([IJKRQP][+-]?[0-9.]+)\b/g, '<span class="gcode-param">$1</span>');
+                
+                // Highlight N line numbers
+                formattedLine = formattedLine.replace(/^\s*(N[0-9]+)/, '<span class="gcode-linenum">$1</span>');
+                
+                html += `<span class="gcode-line">${formattedLine}</span>\n`;
+            });
+            
+            html += '</div>';
+            gcodeContent.innerHTML = html;
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        // Download G-code
+        downloadBtn.addEventListener('click', () => {
+            if (!currentGCode) return;
+            
+            const blob = new Blob([currentGCode], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${currentProgramName}.nc`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+
+        // ==================== Monaco Editor ====================
+        
+        let monacoEditor = null;
+        let editingProgramId = null;
+        let currentFilename = '';
+
+        // Initialize Monaco Editor
+        function initMonacoEditor() {
+            require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
+            require(['vs/editor/editor.main'], function () {
+                monacoEditor = monaco.editor.create(document.getElementById('monaco-editor'), {
+                    value: '',
+                    language: 'gcode',
+                    theme: 'vs-dark',
+                    fontSize: 14,
+                    minimap: { enabled: false },
+                    automaticLayout: true,
+                    scrollBeyondLastLine: false,
+                    wordWrap: 'off',
+                    lineNumbers: 'on',
+                    renderWhitespace: 'selection',
+                    suggestOnTriggerCharacters: true,
+                    quickSuggestions: true,
+                });
+
+                // Register G-code language
+                monaco.languages.register({ id: 'gcode' });
+
+                // Register G-code tokenizer
+                monaco.languages.setMonarchTokensProvider('gcode', {
+                    tokenizer: {
+                        root: [
+                            [/;.*$/, 'comment'],
+                            [/\(.*?\)/, 'comment'],
+                            [/^[NO]\d+/i, 'keyword'],
+                            [/[GMTXZYSF]\d+(\.\d+)?/i, 'number'],
+                            [/-?\d+(\.\d+)?/, 'constant.numeric'],
+                        ]
+                    }
+                });
+
+                // Register completion provider
+                monaco.languages.registerCompletionItemProvider('gcode', {
+                    provideCompletionItems: function(model, position) {
+                        const suggestions = [
+                            { label: 'G0', kind: monaco.languages.CompletionItemKind.Function, insertText: 'G0 X${1} Z${2}', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, documentation: '快速定位' },
+                            { label: 'G1', kind: monaco.languages.CompletionItemKind.Function, insertText: 'G1 X${1} Z${2} F${3}', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, documentation: '直线插补' },
+                            { label: 'G2', kind: monaco.languages.CompletionItemKind.Function, insertText: 'G2 X${1} Z${2} R${3}', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, documentation: '顺时针圆弧' },
+                            { label: 'G3', kind: monaco.languages.CompletionItemKind.Function, insertText: 'G3 X${1} Z${2} R${3}', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, documentation: '逆时针圆弧' },
+                            { label: 'M3', kind: monaco.languages.CompletionItemKind.Function, insertText: 'M3 S${1}', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, documentation: '主轴正转' },
+                            { label: 'M5', kind: monaco.languages.CompletionItemKind.Function, insertText: 'M5', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, documentation: '主轴停止' },
+                            { label: 'M8', kind: monaco.languages.CompletionItemKind.Function, insertText: 'M8', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, documentation: '冷却液开' },
+                            { label: 'M9', kind: monaco.languages.CompletionItemKind.Function, insertText: 'M9', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, documentation: '冷却液关' },
+                            { label: 'M30', kind: monaco.languages.CompletionItemKind.Function, insertText: 'M30', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, documentation: '程序结束' },
+                            { label: 'T0101', kind: monaco.languages.CompletionItemKind.Function, insertText: 'T0101', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, documentation: '换刀' },
+                        ];
+                        return { suggestions: suggestions };
+                    }
+                });
+
+                console.log('✓ Monaco Editor initialized');
+            });
+        }
+
+        // Open editor
+        function openEditor() {
+            if (!currentGCode || !editingProgramId) {
+                alert('没有可编辑的 G 代码');
+                return;
+            }
+
+            document.getElementById('monaco-editor-container').classList.add('active');
+            document.getElementById('editor-filename').textContent = currentFilename;
+
+            if (monacoEditor) {
+                monacoEditor.setValue(currentGCode);
+                monacoEditor.focus();
+            }
+        }
+
+        // Close editor
+        function closeEditor() {
+            document.getElementById('monaco-editor-container').classList.remove('active');
+        }
+
+        // Save G-code
+        async function saveGCode() {
+            if (!monacoEditor || !editingProgramId) {
+                alert('没有可保存的内容');
+                return;
+            }
+
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                alert('请先登录');
+                showLoginModal();
+                return;
+            }
+
+            try {
+                const content = monacoEditor.getValue();
+                const response = await fetch(`/programs/${editingProgramId}/content`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ content: content })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    currentGCode = content;
+                    displayGCode(content);
+                    closeEditor();
+                    loadProgramHistory();
+                    alert('✅ G 代码已保存！');
+                } else {
+                    alert(`❌ 保存失败：${result.detail || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('Save error:', error);
+                alert('❌ 保存失败，请检查网络连接');
+            }
+        }
+
+        // Keyboard shortcut (Ctrl+S)
+        document.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                if (document.getElementById('monaco-editor-container').classList.contains('active')) {
+                    e.preventDefault();
+                    saveGCode();
+                }
+            }
+        });
+
+        // Initialize Monaco Editor on page load
+        initMonacoEditor();
+
+        // Initialize
+        checkAPI();
+        loadProgramHistory();
+    </script>
+</body>
+</html>
