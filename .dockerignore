@@ -1,0 +1,94 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Logs
+*.log
+logs/
+
+# Data files (keep structure, ignore large CAD files)
+data/*.step
+data/*.dwg
+data/*.igs
+data/*.dxf
+data/samples/*
+!data/samples/.gitkeep
+
+# Output
+output/
+*.nc
+*.txt
+
+# Checkpoints
+.checkpoints/
+
+# Cache
+.cache/
+*.cache
+
+# Documentation
+docs/_build/
+docs/.doctrees/
+
+# Testing and CI
+tests/fixtures/large_files/
+*.gcov
+*.gcda
+*.gcno
+
+# Docker
+docker-compose.override.yml
+Dockerfile.local
+
+# Hermes agent specific
+.hermes/
+skills/
+sessions/

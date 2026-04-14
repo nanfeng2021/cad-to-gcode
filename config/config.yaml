@@ -1,0 +1,72 @@
+# CAD to G-code Platform Configuration
+# See: https://hermes-agent.nousresearch.com/docs/user-guide/configuration
+
+[project]
+name = "cad-to-gcode"
+version = "0.1.0"
+description = "AI-powered CAD to G-code generation for 2-axis CNC lathes"
+target_machine = "FANUC 2-axis lathe"
+supported_formats = ["step", "igs", "dxf", "dwg"]
+
+[model]
+# AI model configuration
+feature_recognition_model = "resnet50"
+process_planning_model = "rule-based-v1"
+provider = "local"
+context_length = 4096
+
+[terminal]
+# Terminal backend (like Hermes)
+backend = "local"  # local, docker, ssh, modal
+cwd = "."
+timeout = 180
+shell = "bash"
+
+[database]
+# Tool and material database
+tools_db_path = "data/tools/tools.db"
+materials_db_path = "data/materials/materials.db"
+cutting_rules_path = "config/cutting_rules.yaml"
+
+[web]
+# Web interface configuration
+host = "0.0.0.0"
+port = 8000
+debug = true
+max_upload_size_mb = 50
+
+[gcode]
+# G-code generation settings
+default_system = "FANUC"
+supported_systems = ["FANUC", "Siemens", "Mitsubishi", "GSK", "HNC"]
+include_comments = true
+include_tool_changes = true
+safety_checks = true
+
+[ai]
+# AI/ML configuration
+enable_deep_learning = false
+training_data_path = "data/training"
+model_cache_path = ".cache/models"
+batch_size = 32
+learning_rate = 0.001
+
+[logging]
+level = "INFO"
+format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+file = "logs/cad2gcode.log"
+max_size_mb = 10
+backup_count = 5
+
+[security]
+# Security settings (inspired by Hermes)
+tirith_enabled = true
+allowed_file_extensions = [".step", ".igs", ".dxf", ".dwg", ".stp", ".ige"]
+max_file_size_mb = 50
+scan_for_macros = true
+
+[checkpoints]
+# Filesystem checkpoints (like Hermes /rollback)
+enabled = true
+max_snapshots = 50
+checkpoint_dir = ".checkpoints"

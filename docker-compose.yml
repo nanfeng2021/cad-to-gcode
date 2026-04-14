@@ -1,0 +1,152 @@
+# CAD to G-code Platform - Docker Compose Configuration
+# Usage:
+#   docker-compose up -d          # Start all services
+#   docker-compose up --build     # Rebuild and start
+#   docker-compose down           # Stop all services
+#   docker-compose logs -f        # View logs
+#   docker-compose exec app bash  # Enter container
+
+version: '3.8'
+
+services:
+  # Main application service
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    image: cad-to-gcode:latest
+    container_name: cad2gcode-app
+    ports:
+      - "8000:8000"  # Web API
+    volumes:
+      # Mount source code for hot reload
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./data:/app/data
+      # Persistent volumes
+      - app-logs:/app/logs
+      - app-output:/app/output
+      - app-cache:/app/.cache
+      # Sample files from host
+      - ./data/samples:/app/data/samples:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CAD2GCODE_CONFIG=/app/config/config.yaml
+      - LOG_LEVEL=INFO
+      - DEBUG=true
+    working_dir: /app
+    command: >
+      uvicorn src.web.api:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+      --log-level info
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - cad2gcode-network
+    depends_on: []
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+
+  # Optional: Redis for caching (future use)
+  redis:
+    image: redis:7-alpine
+    container_name: cad2gcode-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    networks:
+      - cad2gcode-network
+    profiles:
+      - with-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional: PostgreSQL for database (future use)
+  postgres:
+    image: postgres:15-alpine
+    container_name: cad2gcode-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: cad2gcode
+      POSTGRES_USER: cad2gcode
+      POSTGRES_PASSWORD: changeme_in_production
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    restart: unless-stopped
+    networks:
+      - cad2gcode-network
+    profiles:
+      - with-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cad2gcode"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Development tools service (run CLI commands)
+  cli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: base
+    image: cad-to-gcode:latest
+    container_name: cad2gcode-cli
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./output:/app/output
+      - app-logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CAD2GCODE_CONFIG=/app/config/config.yaml
+    working_dir: /app
+    entrypoint: ["python", "-m", "src.cli"]
+    profiles:
+      - cli
+    networks:
+      - cad2gcode-network
+
+# Networks
+networks:
+  cad2gcode-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# Volumes
+volumes:
+  app-logs:
+    driver: local
+  app-output:
+    driver: local
+  app-cache:
+    driver: local
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local

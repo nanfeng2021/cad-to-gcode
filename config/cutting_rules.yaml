@@ -1,0 +1,207 @@
+# Cutting Rules Database
+# Format: material -> operation -> parameters
+# Inspired by Hermes config structure
+
+materials:
+  "45#钢":
+    code: "STEEL_45"
+    density: 7.85
+    hardness: "HRC 20-30"
+    operations:
+      rough_turning:
+        v_c: 200        # Cutting speed (m/min)
+        n: 800          # Spindle speed (rpm)
+        f: 0.3          # Feed rate (mm/rev)
+        ap: 3.0         # Depth of cut (mm)
+        ae: 0.8         # Radial engagement
+      finish_turning:
+        v_c: 200
+        n: 1500
+        f: 0.08
+        ap: 0.1
+        ae: 0.9
+      grooving:
+        v_c: 120
+        n: 500
+        f: 0.1
+        ap: 3.0
+      threading:
+        v_c: 100
+        n: 400
+        passes: "multiple"
+      facing:
+        v_c: 180
+        n: 1200
+        f: 0.15
+        ap: 2.0
+
+  "40Cr":
+    code: "STEEL_40CR"
+    density: 7.85
+    hardness: "HRC 25-35"
+    operations:
+      rough_turning:
+        v_c: 180
+        n: 700
+        f: 0.25
+        ap: 2.5
+      finish_turning:
+        v_c: 180
+        n: 1400
+        f: 0.08
+        ap: 0.1
+      grooving:
+        v_c: 100
+        n: 450
+        f: 0.08
+        ap: 2.5
+      threading:
+        v_c: 90
+        n: 380
+        passes: "multiple"
+
+  "不锈钢":
+    code: "STAINLESS"
+    density: 7.93
+    hardness: "HRC 15-25"
+    operations:
+      rough_turning:
+        v_c: 150
+        n: 600
+        f: 0.2
+        ap: 2.0
+      finish_turning:
+        v_c: 150
+        n: 1200
+        f: 0.06
+        ap: 0.1
+      grooving:
+        v_c: 90
+        n: 400
+        f: 0.06
+        ap: 2.0
+
+  "铝合金":
+    code: "ALUMINUM"
+    density: 2.7
+    hardness: "HB 60-100"
+    operations:
+      rough_turning:
+        v_c: 300
+        n: 1500
+        f: 0.4
+        ap: 3.0
+      finish_turning:
+        v_c: 300
+        n: 2500
+        f: 0.1
+        ap: 0.05
+      grooving:
+        v_c: 200
+        n: 1000
+        f: 0.15
+        ap: 3.0
+
+  "黄铜":
+    code: "BRASS"
+    density: 8.5
+    hardness: "HB 80-150"
+    operations:
+      rough_turning:
+        v_c: 250
+        n: 1200
+        f: 0.3
+        ap: 2.5
+      finish_turning:
+        v_c: 250
+        n: 2000
+        f: 0.08
+        ap: 0.05
+
+machine_systems:
+  FANUC:
+    g_code_standard: "ISO 6983"
+    m_codes:
+      spindle_cw: "M03"
+      spindle_ccw: "M04"
+      spindle_stop: "M05"
+      coolant_on: "M08"
+      coolant_off: "M09"
+      tool_change: "M06"
+      program_end: "M30"
+    g_codes:
+      rapid: "G00"
+      linear: "G01"
+      cw_arc: "G02"
+      ccw_arc: "G03"
+      dwell: "G04"
+      inch: "G20"
+      mm: "G21"
+      absolute: "G90"
+      incremental: "G91"
+      feed_per_min: "G94"
+      feed_per_rev: "G95"
+
+  Siemens:
+    g_code_standard: "DIN 66025"
+    m_codes:
+      spindle_cw: "M03"
+      spindle_ccw: "M04"
+      spindle_stop: "M05"
+      coolant_on: "M08"
+      coolant_off: "M09"
+      tool_change: "M06"
+      program_end: "M02"
+    special_features:
+      - "CYCLE81"  # Drilling
+      - "CYCLE95"  # Turning cycle
+      - "CYCLE97"  # Threading cycle
+
+  Mitsubishi:
+    g_code_standard: "ISO 6983"
+    m_codes:
+      spindle_cw: "M03"
+      spindle_ccw: "M04"
+      spindle_stop: "M05"
+      coolant_on: "M08"
+      coolant_off: "M09"
+      tool_change: "M06"
+      program_end: "M30"
+
+tools:
+  external_turning:
+    types:
+      - name: "CNMG120408"
+        insert_shape: "Diamond 80°"
+        cutting_edge: "Double-sided"
+        applications: ["rough_turning", "finish_turning"]
+        materials: ["steel", "cast_iron", "stainless"]
+      - name: "DNMG150608"
+        insert_shape: "Diamond 55°"
+        cutting_edge: "Double-sided"
+        applications: ["profiling", "finish_turning"]
+        materials: ["steel", "aluminum"]
+
+  internal_boring:
+    types:
+      - name: "CCMT09T304"
+        insert_shape: "Diamond 80°"
+        min_bore_diameter: 20
+        applications: ["boring", "internal_turning"]
+        materials: ["steel", "aluminum", "brass"]
+
+  grooving:
+    types:
+      - name: "GX24-3MM"
+        width: 3.0
+        max_depth: 3.0
+        applications: ["grooving", "parting"]
+        materials: ["steel", "stainless", "aluminum"]
+
+  threading:
+    types:
+      - name: "16ERAG60"
+        thread_angle: "60°"
+        pitch_range: "0.5-3.0mm"
+        applications: ["external_threading", "internal_threading"]
+        materials: ["steel", "stainless", "aluminum", "brass"]

@@ -1,0 +1,100 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cad-to-gcode"
+version = "0.1.0"
+description = "AI-powered CAD to G-code generation platform for 2-axis CNC lathes"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Nanfeng", email = "nanfeng@example.com"}
+]
+keywords = ["cad", "g-code", "cnc", "ai", "manufacturing", "cam"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Multimedia :: Graphics :: CAD",
+]
+
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic>=2.5.0",
+    "python-oocc>=7.0.0",
+    "ezdxf>=1.1.0",
+    "numpy>=1.24.0",
+    "scipy>=1.11.0",
+    "opencv-python>=4.8.0",
+    "torch>=2.0.0",
+    "transformers>=4.35.0",
+    "Pillow>=10.0.0",
+    "requests>=2.31.0",
+    "aiohttp>=3.9.0",
+    "python-multipart>=0.0.6",
+    "jinja2>=3.1.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.11.0",
+    "ruff>=0.1.6",
+    "mypy>=1.7.0",
+    "pre-commit>=3.6.0",
+]
+web = [
+    "react-py>=1.0.0",
+    "streamlit>=1.28.0",
+]
+ml = [
+    "datasets>=2.14.0",
+    "wandb>=0.16.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/nanfeng2021/cad-to-gcode"
+Documentation = "https://github.com/nanfeng2021/cad-to-gcode#readme"
+Repository = "https://github.com/nanfeng2021/cad-to-gcode.git"
+Issues = "https://github.com/nanfeng2021/cad-to-gcode/issues"
+
+[project.scripts]
+cad2gcode = "src.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+addopts = "-v --cov=src --cov-report=term-missing"
