@@ -489,7 +489,7 @@ $SKPOLY
   9
 $TDCREATE
  40
-2461145.653402778
+2461145.731122685
   9
 $TDUCREATE
  40
@@ -497,7 +497,7 @@ $TDUCREATE
   9
 $TDUPDATE
  40
-2461145.653402778
+2461145.731122685
   9
 $TDUUPDATE
  40
@@ -549,7 +549,7 @@ $SPLINESEGS
   9
 $HANDSEED
   5
-40
+3A
   9
 $SURFTAB1
  70
@@ -929,11 +929,11 @@ $PSTYLEMODE
   9
 $FINGERPRINTGUID
   2
-{B2C7255B-B5D8-461B-955C-D69755969B9E}
+{50380225-4C6C-4124-BCED-5867F35E4B33}
   9
 $VERSIONGUID
   2
-{05A8E03A-0FF4-4C7A-B9FA-9F163F751421}
+{A2A28DEF-0C37-40C2-B9FB-D998E138DD4B}
   9
 $EXTNAMES
 290
@@ -1323,9 +1323,9 @@ ISM
   0
 CLASS
   1
-ACDBPLACEHOLDER
+LAYOUT
   2
-AcDbPlaceHolder
+AcDbLayout
   3
 ObjectDBX Classes
  90
@@ -1339,9 +1339,9 @@ ObjectDBX Classes
   0
 CLASS
   1
-LAYOUT
+ACDBPLACEHOLDER
   2
-AcDbLayout
+AcDbPlaceHolder
   3
 ObjectDBX Classes
  90
@@ -1549,7 +1549,7 @@ LAYER
 100
 AcDbSymbolTable
  70
-5
+4
   0
 LAYER
   5
@@ -1640,30 +1640,6 @@ AcDbLayerTableRecord
 0
  62
 1
-  6
-Continuous
-370
--3
-390
-13
-347
-21
-  0
-LAYER
-  5
-31
-330
-1
-100
-AcDbSymbolTableRecord
-100
-AcDbLayerTableRecord
-  2
-标注
- 70
-0
- 62
-3
   6
 Continuous
 370
@@ -1773,7 +1749,7 @@ ACAD
   0
 APPID
   5
-3D
+37
 330
 3
 100
@@ -1787,7 +1763,7 @@ HATCHBACKGROUNDCOLOR
   0
 APPID
   5
-3E
+38
 330
 3
 100
@@ -2097,6 +2073,30 @@ ENTITIES
   0
 LINE
   5
+31
+330
+17
+100
+AcDbEntity
+  8
+轮廓线
+100
+AcDbLine
+ 10
+25.0
+ 20
+0.0
+ 30
+0.0
+ 11
+25.0
+ 21
+0.0
+ 31
+-30.0
+  0
+LINE
+  5
 32
 330
 17
@@ -2111,15 +2111,15 @@ AcDbLine
  20
 0.0
  30
-0.0
+-30.0
  11
-25.0
+20.0
  21
 0.0
  31
 -30.0
   0
-ARC
+LINE
   5
 33
 330
@@ -2129,99 +2129,23 @@ AcDbEntity
   8
 轮廓线
 100
-AcDbCircle
+AcDbLine
  10
-23.0
+20.0
  20
 0.0
  30
 -30.0
- 40
-2.0
-100
-AcDbArc
- 50
+ 11
+20.0
+ 21
 0.0
- 51
-90.0
+ 31
+-60.0
   0
 LINE
   5
 34
-330
-17
-100
-AcDbEntity
-  8
-轮廓线
-100
-AcDbLine
- 10
-25.0
- 20
-0.0
- 30
--30.0
- 11
-20.0
- 21
-0.0
- 31
--30.0
-  0
-LINE
-  5
-35
-330
-17
-100
-AcDbEntity
-  8
-轮廓线
-100
-AcDbLine
- 10
-20.0
- 20
-0.0
- 30
--30.0
- 11
-20.0
- 21
-0.0
- 31
--60.0
-  0
-ARC
-  5
-36
-330
-17
-100
-AcDbEntity
-  8
-轮廓线
-100
-AcDbCircle
- 10
-18.0
- 20
-0.0
- 30
--60.0
- 40
-2.0
-100
-AcDbArc
- 50
-0.0
- 51
-90.0
-  0
-LINE
-  5
-37
 330
 17
 100
@@ -2245,7 +2169,7 @@ AcDbLine
   0
 LINE
   5
-38
+35
 330
 17
 100
@@ -2269,7 +2193,7 @@ AcDbLine
   0
 LINE
   5
-39
+36
 330
 17
 100
@@ -2292,66 +2216,6 @@ AcDbLine
 0.0
  31
 -105.0
-  0
-CIRCLE
-  5
-3A
-330
-17
-100
-AcDbEntity
-  8
-标注
-100
-AcDbCircle
- 10
-0.0
- 20
-0.0
- 30
-0.0
- 40
-30.0
-  0
-CIRCLE
-  5
-3B
-330
-17
-100
-AcDbEntity
-  8
-标注
-100
-AcDbCircle
- 10
-0.0
- 20
-0.0
- 30
-0.0
- 40
-25.0
-  0
-CIRCLE
-  5
-3C
-330
-17
-100
-AcDbEntity
-  8
-标注
-100
-AcDbCircle
- 10
-0.0
- 20
-0.0
- 30
-0.0
- 40
-20.0
   0
 ENDSEC
   0
@@ -3343,7 +3207,7 @@ CREATED_BY_EZDXF
   3
 WRITTEN_BY_EZDXF
 350
-3F
+39
   0
 DICTIONARYVAR
   5
@@ -3355,11 +3219,11 @@ DictionaryVariables
 280
 0
   1
-1.4.3 @ 2026-04-14T07:40:54.177424+00:00
+1.4.3 @ 2026-04-14T09:32:49.251360+00:00
   0
 DICTIONARYVAR
   5
-3F
+39
 330
 2D
 100
@@ -3367,7 +3231,7 @@ DictionaryVariables
 280
 0
   1
-1.4.3 @ 2026-04-14T07:40:54.182136+00:00
+1.4.3 @ 2026-04-14T09:32:49.256258+00:00
   0
 ENDSEC
   0
