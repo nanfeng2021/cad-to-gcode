@@ -45,9 +45,20 @@ Thumbs.db
 # Generated output
 output/
 *.nc
-!tests/test_dxf_files/*.nc
 
-# Temporary
+# Test outputs (generated G-code files)
+tests/test_dxf_files/*.nc
+
+# Logs and data directories
+logs/
+src/data/
+src/export/
+
+# Temporary files
 tmp/
 temp/
 *.tmp
+
+# JSON files (except config)
+*.json
+!feishu_raw_blocks.json
