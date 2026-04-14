@@ -121,6 +121,17 @@ class DXFMetadata:
 
 
 @dataclass
+class TextEntity:
+    """Text entity from DXF (for thread annotations, etc.)."""
+    type: str = "text"
+    text: str = ""
+    insert_point: Point3D = None
+    height: float = 0.0
+    rotation: float = 0.0
+    layer: str = ""
+
+
+@dataclass
 class ParsedGeometry:
     """Parsed geometry from DXF file."""
     metadata: DXFMetadata = None
@@ -128,6 +139,7 @@ class ParsedGeometry:
     circles: List[CircleEntity] = field(default_factory=list)
     arcs: List[ArcEntity] = field(default_factory=list)
     polylines: List[List[Point3D]] = field(default_factory=list)
+    texts: List[TextEntity] = field(default_factory=list)
     
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization."""
@@ -137,13 +149,15 @@ class ParsedGeometry:
                 "lines": [asdict(e) for e in self.lines],
                 "circles": [asdict(e) for e in self.circles],
                 "arcs": [asdict(e) for e in self.arcs],
-                "polylines": [[asdict(p) for p in pl] for pl in self.polylines]
+                "polylines": [[asdict(p) for p in pl] for pl in self.polylines],
+                "texts": [asdict(e) for e in self.texts]
             },
             "summary": {
                 "line_count": len(self.lines),
                 "circle_count": len(self.circles),
                 "arc_count": len(self.arcs),
-                "polyline_count": len(self.polylines)
+                "polyline_count": len(self.polylines),
+                "text_count": len(self.texts)
             }
         }
 
@@ -202,6 +216,8 @@ class DXFParser:
                     self._extract_arc(entity, result)
                 elif entity.dxftype() in ['POLYLINE', 'LWPOLYLINE']:
                     self._extract_polyline(entity, result)
+                elif entity.dxftype() == 'TEXT':
+                    self._extract_text(entity, result)
             except Exception as e:
                 logger.warning(f"Failed to extract entity {entity.dxftype()}: {e}")
         
@@ -209,7 +225,8 @@ class DXFParser:
             f"Parsed {len(result.lines)} lines, "
             f"{len(result.circles)} circles, "
             f"{len(result.arcs)} arcs, "
-            f"{len(result.polylines)} polylines"
+            f"{len(result.polylines)} polylines, "
+            f"{len(result.texts)} texts"
         )
         
         return result
@@ -280,6 +297,21 @@ class DXFParser:
                 result.polylines.append(points)
         except Exception as e:
             logger.warning(f"Failed to extract polyline points: {e}")
+    
+    def _extract_text(self, entity: Any, result: ParsedGeometry):
+        """Extract TEXT entity (for thread annotations, etc.)."""
+        try:
+            insert = entity.dxf.insert
+            text = TextEntity(
+                text=entity.dxf.text,
+                insert_point=Point3D(x=insert[0], y=insert[1], z=insert[2]),
+                height=entity.dxf.height,
+                rotation=entity.dxf.rotation,
+                layer=entity.dxf.layer
+            )
+            result.texts.append(text)
+        except Exception as e:
+            logger.warning(f"Failed to extract text: {e}")
 
 
 def parse_dxf(filepath: str) -> Dict:

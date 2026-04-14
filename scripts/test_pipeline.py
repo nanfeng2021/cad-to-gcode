@@ -79,7 +79,15 @@ def test_dxf_to_gcode(dxf_file: str):
                 width = feat['parameters']['width']
                 depth = feat['parameters']['depth']
                 pos_z = feat['parameters']['position_z']
-                print(f"  [{feat_id}] 切槽: 宽{width}mm × 深{depth}mm @ Z{pos_z}")
+                print(f"  [{feat_id}] 切槽：宽{width}mm × 深{depth}mm @ Z{pos_z}")
+            elif feat_type == 'thread':
+                designation = feat['parameters']['designation']
+                major_dia = feat['parameters']['major_diameter']
+                pitch = feat['parameters']['pitch']
+                length = feat['parameters']['length']
+                start_z = feat['parameters']['start_z']
+                end_z = feat['parameters']['end_z']
+                print(f"  [{feat_id}] 螺纹：{designation} (大径:{major_dia}mm, 螺距:{pitch}mm, 长:{length}mm) @ Z{start_z}→{end_z}")
         
     except Exception as e:
         print(f"✗ Feature recognition failed: {e}")

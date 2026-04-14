@@ -14,7 +14,7 @@ from enum import Enum
 import math
 import logging
 
-from .dxf_parser import LineEntity, CircleEntity, ArcEntity, Point3D, ParsedGeometry
+from .dxf_parser import LineEntity, CircleEntity, ArcEntity, Point3D, ParsedGeometry, TextEntity
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +150,10 @@ class FeatureRecognizer:
         # 4. Recognize grooves (simplified: look for narrow rectangular patterns)
         groove_features = self._recognize_grooves(valid_lines)
         feature_tree.features.extend(groove_features)
+        
+        # 5. Recognize threads from text annotations (e.g., "M30x1.5")
+        thread_features = self._recognize_threads(geometry.texts, valid_lines)
+        feature_tree.features.extend(thread_features)
         
         # Sort by priority (lower = machine first)
         feature_tree.features.sort(key=lambda f: f.priority)
@@ -399,6 +403,115 @@ class FeatureRecognizer:
                     }
                 )
                 features.append(feature)
+        
+        return features
+    
+    def _recognize_threads(self, texts: List[TextEntity], lines: List[LineEntity]) -> List[MachiningFeature]:
+        """
+        Recognize threads from text annotations like "M30x1.5", "G1/2", etc.
+        
+        Thread annotation format:
+        - M<major_diameter>x<pitch> (metric thread)
+        - Example: M30x1.5 = 30mm major diameter, 1.5mm pitch
+        
+        Detection strategy:
+        1. Look for TEXT entities containing thread patterns
+        2. Parse the thread specification
+        3. Find the corresponding cylinder at the thread location
+        4. Create a thread feature with machining parameters
+        """
+        import re
+        
+        features = []
+        
+        # Thread pattern regex: M<diameter>x<pitch> or M<diameter>
+        # Examples: M30x1.5, M20, M24x2.0
+        thread_pattern = re.compile(r'M(\d+(?:\.\d+)?)(?:x(\d+(?:\.\d+)?))?', re.IGNORECASE)
+        
+        max_x = max(
+            max(l.start.x, l.end.x) 
+            for l in lines 
+            if isinstance(l, LineEntity)
+        ) if lines else 0
+        
+        for text in texts:
+            match = thread_pattern.search(text.text)
+            if not match:
+                continue
+            
+            # Parse thread specification
+            major_diameter = float(match.group(1))
+            pitch = float(match.group(2)) if match.group(2) else 1.5  # Default pitch
+            
+            # Find the Z position of the text annotation
+            # In lathe DXF, Y coordinate often represents Z position (machining plane is XZ)
+            if text.insert_point:
+                # Use Y as Z if Z is 0, otherwise use Z directly
+                text_z = text.insert_point.y if abs(text.insert_point.z) < self.tolerance else text.insert_point.z
+            else:
+                text_z = None
+                
+            if text_z is None:
+                logger.warning(f"Thread text '{text.text}' has no Z position")
+                continue
+            
+            # Find the cylinder that corresponds to this thread
+            # Look for vertical lines near the text Z position
+            thread_line = None
+            for line in lines:
+                if abs(abs(line.end.x - line.start.x)) < self.tolerance:  # Vertical line
+                    z_min = min(line.start.z, line.end.z)
+                    z_max = max(line.start.z, line.end.z)
+                    # Check if text is within the Z range of this line
+                    if z_min <= text_z <= z_max:
+                        thread_line = line
+                        break
+            
+            if not thread_line:
+                # Try to find any vertical line within 10mm of the text
+                for line in lines:
+                    if abs(abs(line.end.x - line.start.x)) < self.tolerance:
+                        z_mid = (line.start.z + line.end.z) / 2
+                        if abs(z_mid - text_z) < 10.0:
+                            thread_line = line
+                            break
+            
+            if not thread_line:
+                logger.warning(f"Could not find cylinder for thread '{text.text}' at Z={text_z}")
+                continue
+            
+            # Calculate thread parameters
+            thread_length = abs(thread_line.end.z - thread_line.start.z)
+            minor_diameter = major_diameter - 1.0825 * pitch  # H = 0.6495*P, depth = 0.5413*P*2
+            
+            self.feature_counter += 1
+            feature = MachiningFeature(
+                id=f"thread_{self.feature_counter:03d}",
+                type=FeatureType.THREAD,
+                priority=4,  # After grooves
+                parameters={
+                    "thread_type": "metric",
+                    "designation": f"M{major_diameter}x{pitch}",
+                    "major_diameter": round(major_diameter, 3),
+                    "minor_diameter": round(minor_diameter, 3),
+                    "pitch": round(pitch, 3),
+                    "length": round(thread_length, 3),
+                    "start_z": round(min(thread_line.start.z, thread_line.end.z), 3),
+                    "end_z": round(max(thread_line.start.z, thread_line.end.z), 3)
+                },
+                machining_area={
+                    "start_x": round(minor_diameter / 2, 3),
+                    "end_x": round(major_diameter / 2, 3),
+                    "z_start": round(min(thread_line.start.z, thread_line.end.z), 3),
+                    "z_end": round(max(thread_line.start.z, thread_line.end.z), 3)
+                },
+                raw_geometry={
+                    "type": "thread_annotation",
+                    "text": text.text,
+                    "cylinder": [thread_line.start.x, thread_line.start.z, thread_line.end.x, thread_line.end.z]
+                }
+            )
+            features.append(feature)
         
         return features
 
