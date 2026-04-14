@@ -108,15 +108,39 @@ class FeatureRecognizer:
             }
         )
         
-        # For lathe parts, we typically work with the upper half profile (Y > 0)
-        # Extract the outer profile from lines and arcs
+        # For lathe parts, we typically work with the upper half profile (X > 0)
+        # Filter lines to only those in the upper half plane
+        valid_lines = [
+            line for line in geometry.lines 
+            if line.start.x > 0 or line.end.x > 0
+        ]
         
-        # 1. Recognize cylindrical surfaces from lines
-        cylinder_features = self._recognize_cylinders(geometry.lines)
+        # Classify lines first
+        cylinders = []
+        tapers = []
+        other_lines = []
+        
+        for line in valid_lines:
+            dx = abs(line.end.x - line.start.x)
+            dz = abs(line.end.z - line.start.z)
+            
+            # Classify based on orientation
+            if dx < self.tolerance:
+                # Parallel to Z-axis = cylinder
+                cylinders.append(line)
+            elif dz < self.tolerance:
+                # Parallel to X-axis = face/shoulder (skip for now)
+                other_lines.append(line)
+            else:
+                # Inclined = taper
+                tapers.append(line)
+        
+        # 1. Recognize cylindrical surfaces
+        cylinder_features = self._extract_cylinders(cylinders)
         feature_tree.features.extend(cylinder_features)
         
-        # 2. Recognize tapers from inclined lines
-        taper_features = self._recognize_tapers(geometry.lines)
+        # 2. Recognize tapers
+        taper_features = self._extract_tapers(tapers)
         feature_tree.features.extend(taper_features)
         
         # 3. Recognize arc surfaces
@@ -124,7 +148,7 @@ class FeatureRecognizer:
         feature_tree.features.extend(arc_features)
         
         # 4. Recognize grooves (simplified: look for narrow rectangular patterns)
-        groove_features = self._recognize_grooves(geometry.lines)
+        groove_features = self._recognize_grooves(valid_lines)
         feature_tree.features.extend(groove_features)
         
         # Sort by priority (lower = machine first)
@@ -134,57 +158,48 @@ class FeatureRecognizer:
         
         return feature_tree
     
-    def _recognize_cylinders(self, lines: List[LineEntity]) -> List[MachiningFeature]:
-        """Recognize external cylindrical surfaces."""
+    def _extract_cylinders(self, lines: List[LineEntity]) -> List[MachiningFeature]:
+        """Extract cylindrical features from vertical lines."""
         features = []
         
         for line in lines:
-            # Check if line is parallel to Z-axis (X coordinates nearly equal)
-            if abs(line.end.x - line.start.x) < self.tolerance:
-                # This is a vertical line in XZ plane = cylindrical surface
-                diameter = abs(line.start.x) * 2  # X is radius in lathe coords
-                length = abs(line.end.z - line.start.z)
-                
-                # Only consider lines in upper half (Y > 0 or X > 0)
-                if line.start.x > 0:
-                    self.feature_counter += 1
-                    feature = MachiningFeature(
-                        id=f"cyl_{self.feature_counter:03d}",
-                        type=FeatureType.EXTERNAL_CYLINDER,
-                        priority=1,  # Cylinders machined first
-                        parameters={
-                            "diameter": round(diameter, 3),
-                            "length": round(length, 3),
-                            "start_z": round(min(line.start.z, line.end.z), 3),
-                            "end_z": round(max(line.start.z, line.end.z), 3)
-                        },
-                        machining_area={
-                            "start_x": round(line.start.x, 3),
-                            "end_x": round(line.end.x, 3),
-                            "start_z": round(line.start.z, 3),
-                            "end_z": round(line.end.z, 3)
-                        },
-                        raw_geometry={
-                            "type": "line",
-                            "start": [line.start.x, line.start.y, line.start.z],
-                            "end": [line.end.x, line.end.y, line.end.z]
-                        }
-                    )
-                    features.append(feature)
+            diameter = abs(line.start.x) * 2  # X is radius in lathe coords
+            length = abs(line.end.z - line.start.z)
+            
+            self.feature_counter += 1
+            feature = MachiningFeature(
+                id=f"cyl_{self.feature_counter:03d}",
+                type=FeatureType.EXTERNAL_CYLINDER,
+                priority=1,  # Cylinders machined first
+                parameters={
+                    "diameter": round(diameter, 3),
+                    "length": round(length, 3),
+                    "start_z": round(min(line.start.z, line.end.z), 3),
+                    "end_z": round(max(line.start.z, line.end.z), 3)
+                },
+                machining_area={
+                    "start_x": round(line.start.x, 3),
+                    "end_x": round(line.end.x, 3),
+                    "start_z": round(line.start.z, 3),
+                    "end_z": round(line.end.z, 3)
+                },
+                raw_geometry={
+                    "type": "line",
+                    "start": [line.start.x, line.start.y, line.start.z],
+                    "end": [line.end.x, line.end.y, line.end.z]
+                }
+            )
+            features.append(feature)
         
         return features
     
-    def _recognize_tapers(self, lines: List[LineEntity]) -> List[MachiningFeature]:
-        """Recognize tapered surfaces from inclined lines."""
+    def _extract_tapers(self, lines: List[LineEntity]) -> List[MachiningFeature]:
+        """Extract tapered features from inclined lines."""
         features = []
         
         for line in lines:
-            # Skip lines parallel to axes
             dx = abs(line.end.x - line.start.x)
             dz = abs(line.end.z - line.start.z)
-            
-            if dx < self.tolerance or dz < self.tolerance:
-                continue  # Parallel to axis, not a taper
             
             # Calculate taper angle and diameters
             start_diameter = abs(line.start.x) * 2
@@ -194,34 +209,36 @@ class FeatureRecognizer:
             # Taper ratio (difference in diameter / length)
             taper_ratio = abs(start_diameter - end_diameter) / length if length > 0 else 0
             
-            # Only consider lines in upper half
-            if line.start.x > 0 and line.end.x > 0:
-                self.feature_counter += 1
-                feature = MachiningFeature(
-                    id=f"taper_{self.feature_counter:03d}",
-                    type=FeatureType.TAPER,
-                    priority=1,
-                    parameters={
-                        "start_diameter": round(start_diameter, 3),
-                        "end_diameter": round(end_diameter, 3),
-                        "length": round(length, 3),
-                        "taper_ratio": round(taper_ratio, 4),
-                        "start_z": round(min(line.start.z, line.end.z), 3),
-                        "end_z": round(max(line.start.z, line.end.z), 3)
-                    },
-                    machining_area={
-                        "start_x": round(line.start.x, 3),
-                        "end_x": round(line.end.x, 3),
-                        "start_z": round(line.start.z, 3),
-                        "end_z": round(line.end.z, 3)
-                    },
-                    raw_geometry={
-                        "type": "line",
-                        "start": [line.start.x, line.start.y, line.start.z],
-                        "end": [line.end.x, line.end.y, line.end.z]
-                    }
-                )
-                features.append(feature)
+            # Calculate taper angle (in degrees)
+            taper_angle = math.degrees(math.atan2(dx, dz)) if dz > 0 else 90.0
+            
+            self.feature_counter += 1
+            feature = MachiningFeature(
+                id=f"taper_{self.feature_counter:03d}",
+                type=FeatureType.TAPER,
+                priority=1,
+                parameters={
+                    "start_diameter": round(start_diameter, 3),
+                    "end_diameter": round(end_diameter, 3),
+                    "length": round(length, 3),
+                    "taper_ratio": round(taper_ratio, 4),
+                    "taper_angle": round(taper_angle, 2),
+                    "start_z": round(min(line.start.z, line.end.z), 3),
+                    "end_z": round(max(line.start.z, line.end.z), 3)
+                },
+                machining_area={
+                    "start_x": round(line.start.x, 3),
+                    "end_x": round(line.end.x, 3),
+                    "start_z": round(line.start.z, 3),
+                    "end_z": round(line.end.z, 3)
+                },
+                raw_geometry={
+                    "type": "line",
+                    "start": [line.start.x, line.start.y, line.start.z],
+                    "end": [line.end.x, line.end.y, line.end.z]
+                }
+            )
+            features.append(feature)
         
         return features
     
@@ -268,81 +285,120 @@ class FeatureRecognizer:
     
     def _recognize_grooves(self, lines: List[LineEntity]) -> List[MachiningFeature]:
         """
-        Recognize grooves (simplified heuristic).
+        Recognize grooves by detecting凹陷 (depression) patterns.
         
-        Looks for narrow rectangular patterns:
-        - Short horizontal line (groove bottom)
-        - Two vertical lines (groove sides)
+        A groove is characterized by a sequence of lines forming a rectangular depression:
+        - Entry: horizontal/radial line going inward (larger X → smaller X)
+        - Bottom: axial line at constant smaller X (constant Z change)
+        - Exit: horizontal/radial line going outward (smaller X → larger X)
+        
+        Pattern in XZ plane (upper half profile):
+          High-X ─┐
+                  ├─ Low-X (groove bottom)
+          High-X ─┘
+        
+        Detection strategy:
+        1. Find vertical lines (constant X, changing Z) that are at smaller X than neighbors
+        2. Check for connecting horizontal lines at both ends
+        3. Verify the pattern forms a depression (not a shoulder step)
         """
         features = []
         
-        # Group lines by Z coordinate to find potential groove patterns
-        horizontal_lines = []
-        vertical_lines = []
+        # Find the maximum X (nominal outer diameter)
+        max_x = max(
+            max(l.start.x, l.end.x) 
+            for l in lines 
+            if isinstance(l, LineEntity)
+        )
         
-        for line in lines:
-            dx = abs(line.end.x - line.start.x)
-            dz = abs(line.end.z - line.start.z)
-            
-            if dz < self.tolerance and dx > 0.5:  # Horizontal line
-                horizontal_lines.append(line)
-            elif dx < self.tolerance and dz > 0.5:  # Vertical line
-                vertical_lines.append(line)
+        # Vertical lines are potential groove bottoms (constant X, axial direction)
+        vertical_lines = [
+            l for l in lines 
+            if abs(l.end.x - l.start.x) < self.tolerance and abs(l.end.z - l.start.z) > 0.5
+        ]
         
-        # Simple groove detection: look for short horizontal lines
-        # that could be groove bottoms (width < 5mm typically)
-        for line in horizontal_lines:
-            width = abs(line.end.x - line.start.x)
+        # Horizontal lines (radial direction, constant Z)
+        horizontal_lines = [
+            l for l in lines 
+            if abs(l.end.z - l.start.z) < self.tolerance
+        ]
+        
+        # Look for vertical lines that could be groove bottoms
+        for v_line in vertical_lines:
+            groove_x = v_line.start.x  # Constant X for vertical line
+            z_start = min(v_line.start.z, v_line.end.z)
+            z_end = max(v_line.start.z, v_line.end.z)
+            groove_width = z_end - z_start  # Width in Z direction
             
-            if 0.5 < width < 5.0:  # Potential groove width
-                # Check if there are vertical lines at the ends
-                z_level = line.start.z
-                x_start = min(line.start.x, line.end.x)
-                x_end = max(line.start.x, line.end.x)
+            # Groove width should be reasonable (1-8mm)
+            if not (1.0 <= groove_width <= 8.0):
+                continue
+            
+            # Check if this vertical line is at smaller X than nominal OD
+            depth_from_od = max_x - groove_x
+            
+            # Must be a depression (at least 0.5mm below OD)
+            if depth_from_od < 0.5:
+                continue
+            
+            # Look for horizontal lines connecting to both ends of this vertical line
+            z_min = min(v_line.start.z, v_line.end.z)
+            z_max = max(v_line.start.z, v_line.end.z)
+            
+            has_entry = False  # Horizontal line entering the groove
+            has_exit = False   # Horizontal line exiting the groove
+            
+            for h_line in horizontal_lines:
+                h_z = h_line.start.z
+                h_x_start = h_line.start.x
+                h_x_end = h_line.end.x
                 
-                has_left_wall = any(
-                    abs(v_line.start.x - x_start) < self.tolerance and
-                    abs(v_line.start.z - z_level) < self.tolerance
-                    for v_line in vertical_lines
-                )
+                # Check if this horizontal line is at one end of the vertical line
+                at_top = abs(h_z - z_min) < self.tolerance
+                at_bottom = abs(h_z - z_max) < self.tolerance
                 
-                has_right_wall = any(
-                    abs(v_line.start.x - x_end) < self.tolerance and
-                    abs(v_line.start.z - z_level) < self.tolerance
-                    for v_line in vertical_lines
-                )
-                
-                if has_left_wall and has_right_wall:
-                    self.feature_counter += 1
-                    depth = max(
-                        abs(v_line.end.z - v_line.start.z)
-                        for v_line in vertical_lines
-                        if abs(v_line.start.x - x_start) < self.tolerance or
-                           abs(v_line.start.x - x_end) < self.tolerance
+                if at_top or at_bottom:
+                    # Check if it connects to the groove X
+                    connects_to_groove = (
+                        abs(h_x_start - groove_x) < self.tolerance or
+                        abs(h_x_end - groove_x) < self.tolerance
                     )
                     
-                    feature = MachiningFeature(
-                        id=f"groove_{self.feature_counter:03d}",
-                        type=FeatureType.GROOVE,
-                        priority=3,  # Grooves after OD turning
-                        parameters={
-                            "width": round(width, 3),
-                            "depth": round(depth, 3),
-                            "position_z": round(z_level, 3),
-                            "start_x": round(x_start, 3),
-                            "end_x": round(x_end, 3)
-                        },
-                        machining_area={
-                            "start_x": round(x_start, 3),
-                            "end_x": round(x_end, 3),
-                            "z_level": round(z_level, 3)
-                        },
-                        raw_geometry={
-                            "type": "groove_pattern",
-                            "bottom": [line.start.x, line.start.z, line.end.x, line.end.z]
-                        }
-                    )
-                    features.append(feature)
+                    if connects_to_groove:
+                        # Check if the other end is at larger X (outer diameter)
+                        other_x = h_x_end if abs(h_x_start - groove_x) < self.tolerance else h_x_start
+                        if other_x > groove_x + 0.1:
+                            if at_top:
+                                has_entry = True
+                            else:
+                                has_exit = True
+            
+            # If we have both entry and exit, it's a groove
+            if has_entry and has_exit:
+                self.feature_counter += 1
+                feature = MachiningFeature(
+                    id=f"groove_{self.feature_counter:03d}",
+                    type=FeatureType.GROOVE,
+                    priority=3,
+                    parameters={
+                        "width": round(groove_width, 3),
+                        "depth": round(depth_from_od, 3),
+                        "position_z": round((z_min + z_max) / 2, 3),
+                        "groove_diameter": round(groove_x * 2, 3),
+                        "outer_diameter": round(max_x * 2, 3)
+                    },
+                    machining_area={
+                        "start_x": round(groove_x, 3),
+                        "end_x": round(max_x, 3),
+                        "z_start": round(z_min, 3),
+                        "z_end": round(z_max, 3)
+                    },
+                    raw_geometry={
+                        "type": "groove_pattern",
+                        "bottom": [v_line.start.x, v_line.start.z, v_line.end.x, v_line.end.z]
+                    }
+                )
+                features.append(feature)
         
         return features
 
