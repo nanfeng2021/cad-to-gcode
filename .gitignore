@@ -4,67 +4,50 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual environments
 venv/
-env/
 ENV/
+env/
 .venv
 
 # IDE
-.vscode/
 .idea/
+.vscode/
 *.swp
 *.swo
 *~
-
-# Data files (keep samples, ignore large files)
-data/*.step
-data/*.dwg
-data/*.igs
-data/*.dxf
-data/samples/*
-!data/samples/.gitkeep
-
-# Generated G-code output
-output/
-*.nc
-*.txt
-
-# Logs
-*.log
-logs/
-
-# Environment variables
-.env
-.env.local
-
-# OS
-.DS_Store
-Thumbs.db
 
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
+.tox/
+
+# Build
+build/
+dist/
+*.egg-info/
+.eggs/
 
 # Jupyter
 .ipynb_checkpoints/
 
-# Feishu export (keep raw, can regenerate)
-feishu_raw_blocks.json
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env
+!.env.example
+
+# Generated output
+output/
+*.nc
+!tests/test_dxf_files/*.nc
+
+# Temporary
+tmp/
+temp/
+*.tmp
