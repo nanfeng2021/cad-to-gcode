@@ -226,9 +226,9 @@ async def get_current_user(authorization: str = Header(None)) -> Optional[Dict]:
     return user_info
 
 
-def require_auth(authorization: str = Header(None)) -> Dict:
+async def require_auth(authorization: str = Header(None)) -> Dict:
     """Require authentication."""
-    user_info = get_current_user(authorization)
+    user_info = await get_current_user(authorization)
     if not user_info:
         raise HTTPException(status_code=401, detail="Authentication required")
     return user_info

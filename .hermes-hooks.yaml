@@ -1,0 +1,242 @@
+# CAD to G-code Platform - Hermes Hooks Configuration
+# 自动触发配置：文件监控、API Hook、定时任务、自我检测
+
+hooks:
+  # ============================================
+  # Hook 1: DXF 文件上传后的自动处理
+  # ============================================
+  - name: "dxf_upload_processor"
+    description: "Automatically process DXF files when added to input directory"
+    enabled: true
+    
+    trigger:
+      type: "file_created"
+      path: "./input/*.dxf"
+      debounce_seconds: 2  # 防止文件写入过程中触发
+    
+    action:
+      type: "terminal"
+      command: >
+        bash -c "cd /mnt/g/projects/cad-to-gcode && 
+        source venv/bin/activate && 
+        python scripts/test_pipeline.py {file_path}"
+      timeout_seconds: 300
+    
+    post_action:
+      type: "validation"
+      checks:
+        - name: "output_exists"
+          script: "test -f {output_path}"
+        - name: "gcode_valid"
+          script: "grep -q '^O[0-9]' {output_path}"
+        - name: "database_record"
+          script: "sqlite3 data/gcode.db \"SELECT COUNT(*) FROM programs WHERE filename='{filename}';\" | grep -q '1'"
+      
+      on_success:
+        - type: "move_file"
+          from: "{file_path}"
+          to: "./processed/{filename}"
+        - type: "notify"
+          channel: "feishu"
+          message: "✅ DXF processed successfully: {filename} → {output_filename}"
+      
+      on_failure:
+        - type: "move_file"
+          from: "{file_path}"
+          to: "./error/{filename}"
+        - type: "notify"
+          channel: "feishu"
+          message: "❌ DXF processing failed: {filename} - {error_message}"
+          critical: true
+        - type: "retry"
+          max_attempts: 3
+          delay_seconds: 60
+
+  # ============================================
+  # Hook 2: G 代码生成后的质量检测
+  # ============================================
+  - name: "gcode_quality_check"
+    description: "Validate G-code quality after generation"
+    enabled: true
+    
+    trigger:
+      type: "file_modified"
+      path: "./output/*.nc"
+    
+    action:
+      type: "python_script"
+      script: "scripts/validate_gcode.py {file_path}"
+      capture_output: true
+    
+    post_action:
+      type: "memory_update"
+      template: |
+        G-code Validation Record:
+        - File: {filename}
+        - Timestamp: {timestamp}
+        - Status: {status}
+        - Lines: {line_count}
+        - Features: {feature_count}
+        - Validation Errors: {errors}
+
+  # ============================================
+  # Hook 3: 配置变更后的自我检测
+  # ============================================
+  - name: "config_change_detector"
+    description: "Self-test after configuration changes"
+    enabled: true
+    
+    trigger:
+      type: "file_modified"
+      path: "./config/config.yaml"
+    
+    action:
+      type: "self_test"
+      tests:
+        - name: "load_config"
+          script: "python -c 'from src.config_loader import load_config; load_config()'"
+        - name: "verify_database"
+          script: "test -f data/gcode.db"
+        - name: "test_api_endpoint"
+          script: "curl -s http://localhost:8000/health | grep -q 'ok'"
+        - name: "check_cutting_rules"
+          script: "test -f config/cutting_rules.yaml"
+    
+    post_action:
+      type: "report"
+      delivery: "feishu"
+      template: |
+        🔧 Config Change Detected
+        
+        Tests Results:
+        {test_results}
+        
+        Overall Status: {overall_status}
+        Timestamp: {timestamp}
+
+  # ============================================
+  # Hook 4: 定时批量处理（每 2 小时）
+  # ============================================
+  - name: "batch_processor_cron"
+    description: "Batch process all pending DXF files every 2 hours"
+    enabled: true
+    
+    trigger:
+      type: "cron"
+      schedule: "0 */2 * * *"  # Every 2 hours
+    
+    action:
+      type: "python_script"
+      script: "scripts/batch_process.py"
+      timeout_seconds: 600
+    
+    post_action:
+      type: "report"
+      delivery: "feishu"
+      template: |
+        📦 Batch Processing Report
+        
+        Total Files: {total}
+        ✅ Success: {success}
+        ❌ Failed: {failed}
+        
+        Details:
+        {file_details}
+        
+        Processing Time: {elapsed_time}s
+
+  # ============================================
+  # Hook 5: API 调用自动处理
+  # ============================================
+  - name: "api_auto_process"
+    description: "Auto-process DXF uploaded via API"
+    enabled: true
+    
+    trigger:
+      type: "http_request"
+      endpoint: "/gcode/upload-dxf"
+      method: "POST"
+    
+    action:
+      type: "middleware"
+      before: "log_request"
+      after: "trigger_processing"
+    
+    middleware:
+      log_request:
+        type: "logging"
+        level: "info"
+        message: "API upload received: {filename}"
+      
+      trigger_processing:
+        type: "async_task"
+        task: "process_dxf_async"
+        queue: "gcode_generation"
+
+  # ============================================
+  # Hook 6: 错误自学习与参数优化
+  # ============================================
+  - name: "error_learning"
+    description: "Learn from failures and optimize parameters"
+    enabled: true
+    
+    trigger:
+      type: "event"
+      event_name: "processing_failed"
+    
+    action:
+      type: "python_script"
+      script: "scripts/learn_from_error.py"
+      args:
+        error_type: "{error_type}"
+        file_pattern: "{file_pattern}"
+        timestamp: "{timestamp}"
+    
+    post_action:
+      type: "skill_update"
+      action: "append_to_knowledge_base"
+      content: |
+        New Failure Pattern Learned:
+        - Error Type: {error_type}
+        - File Pattern: {file_pattern}
+        - Suggested Fix: {suggested_fix}
+        - Learning Date: {timestamp}
+
+# ============================================
+# 全局配置
+# ============================================
+global_settings:
+  # 通知配置
+  notifications:
+    feishu:
+      enabled: true
+      webhook_url_env: "FEISHU_WEBHOOK_URL"
+      mention_users: ["@Nanfeng"]
+    
+    email:
+      enabled: false
+      smtp_server: "smtp.example.com"
+      recipients: []
+  
+  # 重试策略
+  retry_policy:
+    max_attempts: 3
+    initial_delay_seconds: 60
+    backoff_multiplier: 2
+    max_delay_seconds: 600
+  
+  # 性能监控
+  performance_monitoring:
+    enabled: true
+    metrics_log_path: "logs/performance_metrics.jsonl"
+    alert_thresholds:
+      max_processing_time_seconds: 300
+      min_success_rate: 0.9
+      max_error_rate: 0.1
+  
+  # 自学习配置
+  self_learning:
+    enabled: true
+    knowledge_base_path: "data/knowledge_base.jsonl"
+    auto_optimize_parameters: true
+    review_interval_days: 7

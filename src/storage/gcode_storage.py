@@ -57,8 +57,15 @@ class GCodeDatabase:
                     material TEXT,
                     operations TEXT,
                     created_at TEXT NOT NULL,
-                    metadata TEXT
+                    metadata TEXT,
+                    user_id INTEGER DEFAULT 0
                 )
+            """)
+            
+            # Create index on user_id for filtering
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_programs_user_id 
+                ON programs(user_id)
             """)
             
             # Create index on created_at for faster queries
