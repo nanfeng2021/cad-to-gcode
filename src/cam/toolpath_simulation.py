@@ -303,7 +303,7 @@ class ToolpathSimulator:
                         block_number=0,
                         position=point,
                         severity="warning",
-                        message=f"Z 坐标超出范围：z:.2f} (范围：{bounds['min_z']}-{bounds['max_z']})"
+                        message=f"Z 坐标超出范围：z={z:.2f} (范围：{bounds['min_z']}-{bounds['max_z']})"
                     ))
     
     def _calculate_bounding_box(self, result: SimulationResult):

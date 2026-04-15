@@ -90,6 +90,19 @@ class GCodeGenerator:
         self._add_block("G28 U0 W0", "Return to reference point")
         self._add_block("M30", "Program end")
     
+    def get_gcode(self) -> str:
+        """Get generated G-code as string."""
+        return self.to_string()
+    
+    def to_string(self) -> str:
+        """Convert all blocks to G-code string."""
+        lines = []
+        for block in self.blocks:
+            line = str(block)
+            if line.strip():
+                lines.append(line)
+        return '\n'.join(lines)
+    
     def setup_tool(self, tool_number: int, spindle_speed: int, direction: str = "CW") -> None:
         """
         Setup tool and start spindle.

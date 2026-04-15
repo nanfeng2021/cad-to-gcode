@@ -163,7 +163,7 @@ class CurvatureAnalyzer:
     
     def _distance(self, p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
         """计算两点距离"""
-        return math.sqrt((p1[0] - p2[0])**2 + **(p1[1] - p2[1])2)
+        return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
 
 
 class RuleEngine:
@@ -769,7 +769,7 @@ class FeatureRecognizer:
     
     def _distance(self, p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
         """计算两点距离"""
-        return math.sqrt((p1[0] - p2[0])**2 + **(p1[1] - p2[1])2)
+        return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
 
 
 def recognize_features(entities: List) -> RecognitionResult:
