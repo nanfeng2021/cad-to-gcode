@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, FileResponse, Response, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from pathlib import Path
 import logging
 import uuid
@@ -23,6 +23,9 @@ from src.ai.dxf_parser import DXFParser
 from src.ai.feature_recognition import recognize_features
 from src.storage.user_management import get_user_database, UserDatabase
 from src.export.process_sheet import get_exporter
+from src.core.batch_queue import BatchQueue, TaskPriority, TaskStatus
+from src.core.tool_life_management import ToolLifeManager, Tool, ToolStatus as ToolLifeStatus
+from src.core.cost_accounting import CostAccountingManager, CostType, CostCategory
 
 # Setup logging
 logging.basicConfig(
@@ -56,6 +59,44 @@ app.add_middleware(
 cutting_engine = CuttingRulesEngine()
 gcode_db = GCodeDatabase()
 user_db = get_user_database()
+batch_queue = BatchQueue()  # 批量处理队列
+tool_life_manager = ToolLifeManager()  # 刀具寿命管理器
+cost_manager = CostAccountingManager()  # 成本核算管理器
+
+# 注册 DXF 到 G-code 的任务处理器
+def process_dxf_to_gcode_task(payload: Dict) -> Dict:
+    """处理 DXF 到 G-code 转换任务"""
+    from src.ai.dxf_parser import parse_dxf_file
+    from src.ai.feature_recognition import recognize_features
+    from src.cam.gcode_generator import GCodeGenerator
+    
+    dxf_path = payload.get("dxf_path")
+    material = payload.get("material", "45#钢")
+    machine_system = payload.get("machine_system", "FANUC")
+    
+    # 解析 DXF
+    entities = parse_dxf_file(dxf_path)
+    
+    # 特征识别
+    features = recognize_features(entities)
+    
+    # G-code 生成
+    generator = GCodeGenerator(material=material, machine_system=machine_system)
+    gcode_lines = generator.generate_from_features(features)
+    
+    return {
+        "features_count": len(features),
+        "gcode_lines": len(gcode_lines),
+        "material": material,
+        "machine_system": machine_system
+    }
+
+batch_queue.register_handler("dxf_to_gcode", process_dxf_to_gcode_task)
+
+# 启动后台工作线程（2 个工作者）
+logger.info("Starting batch queue workers...")
+batch_queue.start_worker(worker_id="worker_1", poll_interval=0.5)
+batch_queue.start_worker(worker_id="worker_2", poll_interval=0.5)
 
 
 # ==================== Models ====================
@@ -160,6 +201,238 @@ class DXFUploadResponse(BaseModel):
     gcode_lines: int
     program_name: str
     message: str
+
+
+# ==================== Batch Processing Models ====================
+
+class BatchTaskSubmitRequest(BaseModel):
+    """批量任务提交请求"""
+    task_type: str = Field(..., description="任务类型：dxf_to_gcode, batch_export, etc.")
+    priority: int = Field(default=2, description="优先级：0=紧急，1=高，2=普通，3=低")
+    payload: Dict[str, Any] = Field(..., description="任务参数")
+    max_retries: int = Field(default=3, description="最大重试次数")
+
+
+class BatchTaskSubmitResponse(BaseModel):
+    """批量任务提交响应"""
+    success: bool
+    task_id: int
+    message: str
+
+
+class BatchTaskStatusResponse(BaseModel):
+    """批量任务状态响应"""
+    task_id: int
+    task_type: str
+    status: str
+    priority: int
+    progress: float
+    result: Optional[Dict] = None
+    error_message: Optional[str] = None
+    created_at: str
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+class BatchQueueStatusResponse(BaseModel):
+    """批量队列状态响应"""
+    total_tasks: int
+    pending: int
+    running: int
+    completed: int
+    failed: int
+    avg_wait_time_seconds: float
+    avg_process_time_seconds: float
+
+
+class BatchTaskListResponse(BaseModel):
+    """批量任务列表响应"""
+    tasks: List[BatchTaskStatusResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class BatchDXFUploadRequest(BaseModel):
+    """批量 DXF 上传请求"""
+    files: List[str] = Field(..., description="DXF 文件路径列表")
+    material: str = Field(default="45#钢", description="材料类型")
+    machine_system: str = Field(default="FANUC", description="数控系统")
+    priority: int = Field(default=2, description="优先级")
+
+
+class BatchDXFUploadResponse(BaseModel):
+    """批量 DXF 上传响应"""
+    success: bool
+    batch_id: str
+    tasks_submitted: int
+    task_ids: List[int]
+    message: str
+
+
+# ==================== Tool Life Management Models ====================
+
+class ToolCreateRequest(BaseModel):
+    """刀具创建请求"""
+    tool_number: str = Field(..., min_length=4, description="刀具编号 (如 T0101)")
+    name: str = Field(..., description="刀具名称")
+    tool_type: str = Field(default="turning", description="刀具类型")
+    model: str = Field(default="", description="型号")
+    insert_material: str = Field(default="", description="刀片材料")
+    insert_shape: str = Field(default="", description="刀片形状")
+    manufacturer: str = Field(default="", description="制造商")
+    supplier: str = Field(default="", description="供应商")
+    unit_price: float = Field(default=0.0, description="单价（元）")
+    max_life_minutes: int = Field(default=600, description="最大寿命（分钟）")
+    life_warning_threshold: float = Field(default=0.2, description="寿命预警阈值")
+
+
+class ToolResponse(BaseModel):
+    """刀具响应"""
+    id: int
+    tool_number: str
+    name: str
+    tool_type: str
+    model: str
+    insert_material: str
+    insert_shape: str
+    manufacturer: str
+    supplier: str
+    unit_price: float
+    max_life_minutes: int
+    used_life_minutes: float
+    remaining_life_minutes: float
+    life_percentage: float
+    usage_count: int
+    total_parts: int
+    status: str
+    needs_replacement: bool
+    estimated_cost_per_part: float
+    install_date: Optional[str] = None
+    last_maintenance_date: Optional[str] = None
+    created_at: str
+
+
+class ToolListResponse(BaseModel):
+    """刀具列表响应"""
+    tools: List[ToolResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class ToolUsageRecordRequest(BaseModel):
+    """刀具使用记录请求"""
+    program_name: str
+    operation_type: str
+    duration_minutes: float
+    parts_count: int = Field(default=1, ge=1)
+    wear_level: float = Field(default=0.0, ge=0.0, le=1.0)
+    notes: Optional[str] = None
+
+
+class ToolStatisticsResponse(BaseModel):
+    """刀具统计响应"""
+    total_tools: int
+    available: int
+    in_use: int
+    worn: int
+    avg_life_usage_percent: float
+    total_parts_machined: int
+    total_tool_cost: float
+    tools_needing_replacement: int
+
+
+class ToolWarningResponse(BaseModel):
+    """刀具预警响应"""
+    tool_id: int
+    tool_number: str
+    name: str
+    life_percentage: float
+    remaining_minutes: int
+    severity: str
+    message: str
+
+
+# ==================== Cost Accounting Models ====================
+
+class CostParameterResponse(BaseModel):
+    """成本参数响应"""
+    machine_hourly_rate: float
+    labor_hourly_rate: float
+    overhead_rate: float
+    material_waste_factor: float
+    default_tool_life_minutes: int
+
+
+class CostRecordRequest(BaseModel):
+    """成本记录请求"""
+    program_name: str
+    cost_type: str
+    amount: float
+    quantity: float = Field(default=1.0, ge=0)
+    unit: str = Field(default="元", description="单位")
+    category: str = Field(default="variable", description="成本分类")
+    program_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class CostRecordResponse(BaseModel):
+    """成本记录响应"""
+    id: int
+    program_id: Optional[int]
+    program_name: str
+    cost_type: str
+    category: str
+    amount: float
+    unit: str
+    quantity: float
+    total: float
+    notes: Optional[str]
+    created_at: str
+
+
+class JobCostSummaryResponse(BaseModel):
+    """任务成本汇总响应"""
+    program_id: int
+    program_name: str
+    tool_cost: float
+    material_cost: float
+    machine_time_cost: float
+    labor_cost: float
+    overhead_cost: float
+    maintenance_cost: float
+    total_cost: float
+    parts_count: int
+    cost_per_part: float
+    machining_time_minutes: float
+
+
+class CostStatisticsResponse(BaseModel):
+    """成本统计响应"""
+    total_cost: float
+    tool_cost: float
+    material_cost: float
+    machine_time_cost: float
+    labor_cost: float
+    overhead_cost: float
+    job_count: int
+    period_days: int
+
+
+class MaterialPriceRequest(BaseModel):
+    """材料价格请求"""
+    material_name: str
+    price_per_kg: float
+    supplier: Optional[str] = None
+
+
+class MaterialPriceResponse(BaseModel):
+    """材料价格响应"""
+    material_name: str
+    price_per_kg: float
+    supplier: Optional[str]
+    updated_at: str
 
 
 # ==================== User Models ====================
@@ -914,22 +1187,6 @@ async def download_gcode(program_id: str):
     raise HTTPException(status_code=404, detail="Program not found")
 
 
-@app.get("/tools", tags=["Tools"])
-async def list_tools():
-    """List available cutting tools."""
-    tools = []
-    for tool_type, data in cutting_engine.tools.items():
-        for tool in data.get('types', []):
-            tools.append({
-                "type": tool_type,
-                "name": tool.get('name', ''),
-                "model": tool.get('insert_shape', ''),
-                "applications": tool.get('applications', []),
-                "materials": tool.get('materials', []),
-            })
-    return {"tools": tools, "count": len(tools)}
-
-
 @app.get("/machine-systems", tags=["Configuration"])
 async def list_machine_systems():
     """List supported CNC machine control systems."""
@@ -941,6 +1198,587 @@ async def list_machine_systems():
             "m_codes": data.get('m_codes', {}),
         })
     return {"systems": systems}
+
+
+# ==================== Batch Processing Endpoints ====================
+
+@app.post("/batch/submit", tags=["Batch Processing"])
+async def submit_batch_task(request: BatchTaskSubmitRequest):
+    """提交批量处理任务"""
+    try:
+        task_id = batch_queue.submit_task(
+            task_type=request.task_type,
+            payload=request.payload,
+            priority=request.priority,
+            max_retries=request.max_retries
+        )
+        
+        return BatchTaskSubmitResponse(
+            success=True,
+            task_id=task_id,
+            message=f"Task submitted successfully with ID {task_id}"
+        )
+    except Exception as e:
+        logger.error(f"Error submitting batch task: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/batch/dxf-upload", tags=["Batch Processing"])
+async def batch_upload_dxf(request: BatchDXFUploadRequest):
+    """批量上传 DXF 文件并生成 G-code"""
+    try:
+        task_ids = []
+        for file_path in request.files:
+            task_id = batch_queue.submit_task(
+                task_type="dxf_to_gcode",
+                payload={
+                    "dxf_path": file_path,
+                    "material": request.material,
+                    "machine_system": request.machine_system
+                },
+                priority=request.priority
+            )
+            task_ids.append(task_id)
+        
+        batch_id = f"batch_{uuid.uuid4().hex[:8]}"
+        
+        return BatchDXFUploadResponse(
+            success=True,
+            batch_id=batch_id,
+            tasks_submitted=len(task_ids),
+            task_ids=task_ids,
+            message=f"Submitted {len(task_ids)} tasks for batch processing"
+        )
+    except Exception as e:
+        logger.error(f"Error in batch DXF upload: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/batch/status/{task_id}", tags=["Batch Processing"])
+async def get_task_status(task_id: int):
+    """获取任务状态"""
+    task = batch_queue.get_task(task_id)
+    
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    
+    return BatchTaskStatusResponse(
+        task_id=task.id,
+        task_type=task.task_type,
+        status=task.status,
+        priority=task.priority,
+        progress=task.progress,
+        result=task.result,
+        error_message=task.error_message,
+        created_at=task.created_at,
+        started_at=task.started_at,
+        completed_at=task.completed_at
+    )
+
+
+@app.get("/batch/queue-status", tags=["Batch Processing"])
+async def get_queue_status():
+    """获取队列状态"""
+    status = batch_queue.get_queue_status()
+    return BatchQueueStatusResponse(**status)
+
+
+@app.get("/batch/tasks", tags=["Batch Processing"])
+async def list_batch_tasks(
+    status: Optional[str] = None,
+    task_type: Optional[str] = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0)
+):
+    """列出批量任务"""
+    tasks = batch_queue.list_tasks(
+        status=status,
+        task_type=task_type,
+        limit=limit,
+        offset=offset
+    )
+    
+    task_responses = [
+        BatchTaskStatusResponse(
+            task_id=t.id,
+            task_type=t.task_type,
+            status=t.status,
+            priority=t.priority,
+            progress=t.progress,
+            result=t.result,
+            error_message=t.error_message,
+            created_at=t.created_at,
+            started_at=t.started_at,
+            completed_at=t.completed_at
+        )
+        for t in tasks
+    ]
+    
+    return BatchTaskListResponse(
+        tasks=task_responses,
+        total=len(tasks),
+        limit=limit,
+        offset=offset
+    )
+
+
+@app.post("/batch/cancel/{task_id}", tags=["Batch Processing"])
+async def cancel_batch_task(task_id: int):
+    """取消任务"""
+    success = batch_queue.cancel_task(task_id)
+    
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to cancel task (may already be completed)")
+    
+    return {"success": True, "message": f"Task {task_id} cancelled"}
+
+
+@app.delete("/batch/clear-completed", tags=["Batch Processing"])
+async def clear_completed_tasks(older_than_days: int = Query(default=7, ge=1)):
+    """清理已完成的历史任务"""
+    count = batch_queue.clear_completed(older_than_days=older_than_days)
+    return {"success": True, "cleared_count": count, "older_than_days": older_than_days}
+
+
+@app.get("/batch/metrics", tags=["Batch Processing"])
+async def get_batch_metrics(hours: int = Query(default=24, ge=1, le=720)):
+    """获取批量处理性能指标"""
+    metrics = batch_queue.get_metrics(hours=hours)
+    return {"hours": hours, "metrics": metrics}
+
+
+# ==================== Tool Life Management Endpoints ====================
+
+@app.post("/tools", tags=["Tool Management"])
+async def create_tool(request: ToolCreateRequest):
+    """创建新刀具"""
+    try:
+        tool = Tool(
+            tool_number=request.tool_number,
+            name=request.name,
+            tool_type=request.tool_type,
+            model=request.model,
+            insert_material=request.insert_material,
+            insert_shape=request.insert_shape,
+            manufacturer=request.manufacturer,
+            supplier=request.supplier,
+            unit_price=request.unit_price,
+            max_life_minutes=request.max_life_minutes,
+            life_warning_threshold=request.life_warning_threshold
+        )
+        
+        tool_id = tool_life_manager.add_tool(tool)
+        
+        return {
+            "success": True,
+            "tool_id": tool_id,
+            "message": f"Tool {tool.tool_number} created successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error creating tool: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/tools", tags=["Tool Management"])
+async def list_tools(
+    tool_type: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0)
+):
+    """列出刀具"""
+    tools = tool_life_manager.list_tools(
+        tool_type=tool_type,
+        status=status,
+        limit=limit,
+        offset=offset
+    )
+    
+    tool_responses = [
+        ToolResponse(
+            id=t.id,
+            tool_number=t.tool_number,
+            name=t.name,
+            tool_type=t.tool_type,
+            model=t.model,
+            insert_material=t.insert_material,
+            insert_shape=t.insert_shape,
+            manufacturer=t.manufacturer,
+            supplier=t.supplier,
+            unit_price=t.unit_price,
+            max_life_minutes=t.max_life_minutes,
+            used_life_minutes=t.used_life_minutes,
+            remaining_life_minutes=t.remaining_life_minutes,
+            life_percentage=round(t.life_percentage, 3),
+            usage_count=t.usage_count,
+            total_parts=t.total_parts,
+            status=t.status,
+            needs_replacement=t.needs_replacement,
+            estimated_cost_per_part=round(t.estimated_cost_per_part, 2),
+            install_date=t.install_date,
+            last_maintenance_date=t.last_maintenance_date,
+            created_at=t.created_at
+        )
+        for t in tools
+    ]
+    
+    return ToolListResponse(
+        tools=tool_responses,
+        total=len(tools),
+        limit=limit,
+        offset=offset
+    )
+
+
+@app.get("/tools/{tool_id}", tags=["Tool Management"])
+async def get_tool(tool_id: int):
+    """获取刀具详情"""
+    tool = tool_life_manager.get_tool(tool_id)
+    
+    if not tool:
+        raise HTTPException(status_code=404, detail=f"Tool {tool_id} not found")
+    
+    return ToolResponse(
+        id=tool.id,
+        tool_number=tool.tool_number,
+        name=tool.name,
+        tool_type=tool.tool_type,
+        model=tool.model,
+        insert_material=tool.insert_material,
+        insert_shape=tool.insert_shape,
+        manufacturer=tool.manufacturer,
+        supplier=tool.supplier,
+        unit_price=tool.unit_price,
+        max_life_minutes=tool.max_life_minutes,
+        used_life_minutes=tool.used_life_minutes,
+        remaining_life_minutes=tool.remaining_life_minutes,
+        life_percentage=round(tool.life_percentage, 3),
+        usage_count=tool.usage_count,
+        total_parts=tool.total_parts,
+        status=tool.status,
+        needs_replacement=tool.needs_replacement,
+        estimated_cost_per_part=round(tool.estimated_cost_per_part, 2),
+        install_date=tool.install_date,
+        last_maintenance_date=tool.last_maintenance_date,
+        created_at=tool.created_at
+    )
+
+
+@app.post("/tools/{tool_id}/usage", tags=["Tool Management"])
+async def record_tool_usage(tool_id: int, request: ToolUsageRecordRequest):
+    """记录刀具使用"""
+    try:
+        tool = tool_life_manager.get_tool(tool_id)
+        if not tool:
+            raise HTTPException(status_code=404, detail=f"Tool {tool_id} not found")
+        
+        tool_life_manager.record_usage(
+            tool_id=tool_id,
+            program_name=request.program_name,
+            operation_type=request.operation_type,
+            duration_minutes=request.duration_minutes,
+            parts_count=request.parts_count,
+            wear_level=request.wear_level,
+            notes=request.notes
+        )
+        
+        # 更新刀具状态
+        updated_tool = tool_life_manager.get_tool(tool_id)
+        if updated_tool.status == ToolLifeStatus.WORN:
+            return {
+                "success": True,
+                "message": f"Usage recorded. WARNING: Tool {updated_tool.tool_number} needs replacement!",
+                "needs_replacement": True,
+                "life_percentage": round(updated_tool.life_percentage, 3)
+            }
+        
+        return {
+            "success": True,
+            "message": "Usage recorded successfully",
+            "needs_replacement": False,
+            "life_percentage": round(updated_tool.life_percentage, 3)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error recording tool usage: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/tools/{tool_id}/history", tags=["Tool Management"])
+async def get_tool_history(tool_id: int, days: int = Query(default=30, ge=1, le=365)):
+    """获取刀具使用历史"""
+    tool = tool_life_manager.get_tool(tool_id)
+    if not tool:
+        raise HTTPException(status_code=404, detail=f"Tool {tool_id} not found")
+    
+    records = tool_life_manager.get_usage_history(tool_id, days=days)
+    
+    return {
+        "tool_id": tool_id,
+        "tool_number": tool.tool_number,
+        "days": days,
+        "records": [r.to_dict() for r in records],
+        "total_records": len(records)
+    }
+
+
+@app.get("/tools/statistics", tags=["Tool Management"])
+async def get_tool_statistics():
+    """获取刀具统计数据"""
+    stats = tool_life_manager.get_tool_statistics()
+    return ToolStatisticsResponse(**stats)
+
+
+@app.get("/tools/warnings", tags=["Tool Management"])
+async def get_tool_warnings():
+    """获取刀具预警信息"""
+    warnings = tool_life_manager.get_tools_warnings()
+    return {"warnings": warnings, "total": len(warnings)}
+
+
+@app.get("/tools/replacement-needed", tags=["Tool Management"])
+async def get_tools_needing_replacement():
+    """获取需要更换的刀具列表"""
+    tools = tool_life_manager.get_tools_needing_replacement()
+    
+    return {
+        "tools": [
+            {
+                "id": t.id,
+                "tool_number": t.tool_number,
+                "name": t.name,
+                "life_percentage": round(t.life_percentage * 100, 1),
+                "remaining_minutes": t.remaining_life_minutes
+            }
+            for t in tools
+        ],
+        "total": len(tools)
+    }
+
+
+@app.put("/tools/{tool_id}/status", tags=["Tool Management"])
+async def update_tool_status(tool_id: int, status: str):
+    """更新刀具状态"""
+    tool = tool_life_manager.get_tool(tool_id)
+    if not tool:
+        raise HTTPException(status_code=404, detail=f"Tool {tool_id} not found")
+    
+    valid_statuses = ["available", "in_use", "maintenance", "worn", "replaced", "scrapped"]
+    if status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+    
+    tool_life_manager.update_tool_status(tool_id, status)
+    
+    return {"success": True, "message": f"Tool {tool.tool_number} status updated to {status}"}
+
+
+@app.delete("/tools/{tool_id}", tags=["Tool Management"])
+async def delete_tool(tool_id: int):
+    """删除刀具"""
+    success = tool_life_manager.delete_tool(tool_id)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Tool {tool_id} not found")
+    
+    return {"success": True, "message": f"Tool {tool_id} deleted"}
+
+
+@app.post("/tools/{tool_id}/maintenance", tags=["Tool Management"])
+async def add_maintenance_record(
+    tool_id: int,
+    maintenance_type: str = Query(..., description="维护类型"),
+    description: str = Query(..., description="维护描述"),
+    cost: float = Query(default=0.0, description="维护成本"),
+    performed_by: str = Query(None, description="执行人")
+):
+    """添加维护记录"""
+    tool = tool_life_manager.get_tool(tool_id)
+    if not tool:
+        raise HTTPException(status_code=404, detail=f"Tool {tool_id} not found")
+    
+    tool_life_manager.add_maintenance_record(
+        tool_id=tool_id,
+        maintenance_type=maintenance_type,
+        description=description,
+        cost=cost,
+        performed_by=performed_by
+    )
+    
+    return {"success": True, "message": "Maintenance record added"}
+
+
+# ==================== Cost Accounting Endpoints ====================
+
+@app.get("/cost/parameters", tags=["Cost Accounting"])
+async def get_cost_parameters():
+    """获取成本参数"""
+    params = cost_manager.default_params
+    return CostParameterResponse(
+        machine_hourly_rate=params.machine_hourly_rate,
+        labor_hourly_rate=params.labor_hourly_rate,
+        overhead_rate=params.overhead_rate,
+        material_waste_factor=params.material_waste_factor,
+        default_tool_life_minutes=params.default_tool_life_minutes
+    )
+
+
+@app.put("/cost/parameters/{param_name}", tags=["Cost Accounting"])
+async def set_cost_parameter(param_name: str, value: float, description: str = None):
+    """设置成本参数"""
+    valid_params = ["machine_hourly_rate", "labor_hourly_rate", "overhead_rate", 
+                    "material_waste_factor", "default_tool_life_minutes"]
+    
+    if param_name not in valid_params:
+        raise HTTPException(status_code=400, detail=f"Invalid parameter name. Must be one of: {valid_params}")
+    
+    cost_manager.set_parameter(param_name, value, description)
+    
+    return {"success": True, "message": f"Parameter {param_name} updated to {value}"}
+
+
+@app.post("/cost/records", tags=["Cost Accounting"])
+async def add_cost_record(request: CostRecordRequest):
+    """添加成本记录"""
+    record_id = cost_manager.add_cost_record(
+        program_name=request.program_name,
+        cost_type=request.cost_type,
+        amount=request.amount,
+        quantity=request.quantity,
+        unit=request.unit,
+        category=request.category,
+        program_id=request.program_id,
+        notes=request.notes
+    )
+    
+    return {
+        "success": True,
+        "record_id": record_id,
+        "message": "Cost record added successfully"
+    }
+
+
+@app.get("/cost/job/{program_id}", tags=["Cost Accounting"])
+async def get_job_cost(program_id: int):
+    """获取任务成本汇总"""
+    summary = cost_manager.calculate_job_cost(program_id)
+    
+    return JobCostSummaryResponse(
+        program_id=summary.program_id,
+        program_name=summary.program_name,
+        tool_cost=round(summary.tool_cost, 2),
+        material_cost=round(summary.material_cost, 2),
+        machine_time_cost=round(summary.machine_time_cost, 2),
+        labor_cost=round(summary.labor_cost, 2),
+        overhead_cost=round(summary.overhead_cost, 2),
+        maintenance_cost=round(summary.maintenance_cost, 2),
+        total_cost=round(summary.total_cost, 2),
+        parts_count=summary.parts_count,
+        cost_per_part=round(summary.cost_per_part, 2),
+        machining_time_minutes=round(summary.machining_time_minutes, 2)
+    )
+
+
+@app.post("/cost/machining-job", tags=["Cost Accounting"])
+async def record_machining_job(
+    program_id: int = Query(...),
+    program_name: str = Query(...),
+    machining_time_minutes: float = Query(..., ge=0),
+    parts_count: int = Query(..., ge=1),
+    material_weight_kg: float = Query(default=0.0, ge=0),
+    material_price_per_kg: float = Query(default=0.0, ge=0),
+    tool_usage_json: str = Query(None, description="JSON 格式的刀具使用记录列表")
+):
+    """记录完整加工任务成本"""
+    import json
+    
+    tool_usage_records = None
+    if tool_usage_json:
+        try:
+            tool_usage_records = json.loads(tool_usage_json)
+        except:
+            raise HTTPException(status_code=400, detail="Invalid JSON for tool_usage_records")
+    
+    cost_manager.record_machining_job(
+        program_id=program_id,
+        program_name=program_name,
+        machining_time_minutes=machining_time_minutes,
+        parts_count=parts_count,
+        material_weight_kg=material_weight_kg,
+        material_price_per_kg=material_price_per_kg,
+        tool_usage_records=tool_usage_records
+    )
+    
+    # 计算并返回成本汇总
+    summary = cost_manager.calculate_job_cost(program_id)
+    
+    return {
+        "success": True,
+        "message": "Machining job cost recorded",
+        "summary": JobCostSummaryResponse(
+            program_id=summary.program_id,
+            program_name=summary.program_name,
+            tool_cost=round(summary.tool_cost, 2),
+            material_cost=round(summary.material_cost, 2),
+            machine_time_cost=round(summary.machine_time_cost, 2),
+            labor_cost=round(summary.labor_cost, 2),
+            overhead_cost=round(summary.overhead_cost, 2),
+            maintenance_cost=round(summary.maintenance_cost, 2),
+            total_cost=round(summary.total_cost, 2),
+            parts_count=summary.parts_count,
+            cost_per_part=round(summary.cost_per_part, 2),
+            machining_time_minutes=round(summary.machining_time_minutes, 2)
+        )
+    }
+
+
+@app.get("/cost/statistics", tags=["Cost Accounting"])
+async def get_cost_statistics(days: int = Query(default=30, ge=1, le=365)):
+    """获取成本统计"""
+    stats = cost_manager.get_cost_statistics(days=days)
+    
+    return CostStatisticsResponse(
+        total_cost=stats["total_cost"],
+        tool_cost=stats["tool_cost"],
+        material_cost=stats["material_cost"],
+        machine_time_cost=stats["machine_time_cost"],
+        labor_cost=stats["labor_cost"],
+        overhead_cost=stats["overhead_cost"],
+        job_count=stats["job_count"],
+        period_days=stats["period_days"]
+    )
+
+
+@app.get("/cost/trend", tags=["Cost Accounting"])
+async def get_cost_trend(
+    days: int = Query(default=30, ge=1, le=365),
+    group_by: str = Query(default="day", regex="^(day|week|month)$")
+):
+    """获取成本趋势"""
+    trend = cost_manager.get_cost_trend(days=days, group_by=group_by)
+    return {"days": days, "group_by": group_by, "trend": trend}
+
+
+@app.get("/cost/materials", tags=["Cost Accounting"])
+async def list_material_prices():
+    """列出材料价格"""
+    materials = cost_manager.list_material_prices()
+    return {"materials": materials, "total": len(materials)}
+
+
+@app.put("/cost/materials/{material_name}", tags=["Cost Accounting"])
+async def set_material_price(material_name: str, request: MaterialPriceRequest):
+    """设置材料价格"""
+    cost_manager.set_material_price(
+        material_name=material_name,
+        price_per_kg=request.price_per_kg,
+        supplier=request.supplier
+    )
+    
+    return {
+        "success": True,
+        "message": f"Material price set: {material_name} = ¥{request.price_per_kg}/kg"
+    }
 
 
 # Mount static files
