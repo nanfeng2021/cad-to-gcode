@@ -675,6 +675,10 @@ class FeatureRecognizer:
                     start = (entity.start.x, entity.start.z)
                     end = (entity.end.x, entity.end.z)
                     
+                    # 跳过中心线 (X 坐标接近 0)
+                    if abs(start[0]) < 0.1 and abs(end[0]) < 0.1:
+                        continue
+                    
                     # 插值采样 (每 1mm 一个点)
                     num_points = max(2, int(self._distance(start, end)))
                     for i in range(num_points):
