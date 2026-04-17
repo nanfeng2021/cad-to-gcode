@@ -329,6 +329,82 @@ def parse_dxf(filepath: str) -> Dict:
     return result.to_dict()
 
 
+def parse_dxf_file(filepath: str) -> List:
+    """
+    Convenience function to parse DXF and return entity list for feature recognition.
+    
+    Args:
+        filepath: Path to DXF file
+        
+    Returns:
+        List of entity objects (lines, circles, arcs) for feature recognition
+    """
+    parser = DXFParser()
+    result = parser.parse_file(filepath)
+    
+    # Convert all entities to a unified format for feature recognition
+    # Use simple objects with .x, .y, .z attributes for compatibility
+    entities = []
+    
+    # Helper classes for compatibility with feature recognition module
+    class Point:
+        def __init__(self, x, y, z):
+            self.x = x
+            self.y = y
+            self.z = z
+    
+    class LineEntity:
+        def __init__(self, start, end, layer=''):
+            self.type = 'LINE'
+            self.start = start
+            self.end = end
+            self.layer = layer
+    
+    class CircleEntity:
+        def __init__(self, center, radius, layer=''):
+            self.type = 'CIRCLE'
+            self.center = center
+            self.radius = radius
+            self.layer = layer
+    
+    class ArcEntity:
+        def __init__(self, center, radius, start_angle, end_angle, layer=''):
+            self.type = 'ARC'
+            self.center = center
+            self.radius = radius
+            self.start_angle = start_angle
+            self.end_angle = end_angle
+            self.layer = layer
+    
+    # Add lines
+    for line in result.lines:
+        entities.append(LineEntity(
+            Point(line.start.x, line.start.y, line.start.z),
+            Point(line.end.x, line.end.y, line.end.z),
+            line.layer
+        ))
+    
+    # Add circles
+    for circle in result.circles:
+        entities.append(CircleEntity(
+            Point(circle.center.x, circle.center.y, circle.center.z),
+            circle.radius,
+            circle.layer
+        ))
+    
+    # Add arcs
+    for arc in result.arcs:
+        entities.append(ArcEntity(
+            Point(arc.center.x, arc.center.y, arc.center.z),
+            arc.radius,
+            arc.start_angle,
+            arc.end_angle,
+            arc.layer
+        ))
+    
+    return entities
+
+
 if __name__ == "__main__":
     # Test parsing
     import sys

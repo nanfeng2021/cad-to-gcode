@@ -742,8 +742,70 @@ async def upload_dxf_and_generate(
         
         logger.info(f"Parsed DXF: {len(geometry.lines)} lines, {len(geometry.texts)} texts")
         
+        # Convert ParsedGeometry to entity list for feature recognition
+        # Use object format for compatibility with feature recognition module
+        entities = []
+        
+        # Helper classes for compatibility
+        class Point2D:
+            def __init__(self, x, z):
+                self.x = x
+                self.z = z
+        
+        class LineEntity:
+            def __init__(self, start, end):
+                self.type = 'LINE'
+                self.start = start
+                self.end = end
+        
+        # Process lines
+        for line in geometry.lines:
+            entities.append(LineEntity(
+                Point2D(line.start.x, line.start.z),
+                Point2D(line.end.x, line.end.z)
+            ))
+        
+        # Also process polylines (convert to lines)
+        for polyline in geometry.polylines:
+            if len(polyline) >= 2:
+                for i in range(len(polyline) - 1):
+                    entities.append(LineEntity(
+                        Point2D(polyline[i].x, polyline[i].z),
+                        Point2D(polyline[i+1].x, polyline[i+1].z)
+                    ))
+        
+        # Process circles
+        class CircleEntity:
+            def __init__(self, center, radius):
+                self.type = 'CIRCLE'
+                self.center = center
+                self.radius = radius
+        
+        for circle in geometry.circles:
+            entities.append(CircleEntity(
+                Point2D(circle.center.x, circle.center.z),
+                circle.radius
+            ))
+        
+        # Process arcs
+        class ArcEntity:
+            def __init__(self, center, radius, start_angle, end_angle):
+                self.type = 'ARC'
+                self.center = center
+                self.radius = radius
+                self.start_angle = start_angle
+                self.end_angle = end_angle
+        
+        for arc in geometry.arcs:
+            entities.append(ArcEntity(
+                Point2D(arc.center.x, arc.center.z),
+                arc.radius,
+                arc.start_angle,
+                arc.end_angle
+            ))
+        
         # Step 2: Recognize machining features
-        feature_result = recognize_features(geometry)
+        feature_result = recognize_features(entities)
         
         # Handle both dict and object return types
         if isinstance(feature_result, dict):
@@ -755,13 +817,20 @@ async def upload_dxf_and_generate(
         
         # Convert feature objects to dicts if needed
         if feature_objects and not features_list:
-            for feat in feature_objects:
+            for idx, feat in enumerate(feature_objects):
                 feat_dict = {
-                    "id": feat.id,
-                    "type": feat.type.value,
-                    "priority": feat.priority,
+                    "id": idx + 1,  # Generate sequential ID
+                    "type": feat.type.value if hasattr(feat.type, 'value') else str(feat.type),
+                    "priority": 1,  # Default priority
                     "parameters": feat.parameters,
-                    "machining_area": feat.machining_area
+                    "machining_area": {
+                        "start_x": feat.start_point[0] if feat.start_point else 0,
+                        "start_z": feat.start_point[1] if feat.start_point else 0,
+                        "end_x": feat.end_point[0] if feat.end_point else 0,
+                        "end_z": feat.end_point[1] if feat.end_point else 0,
+                    },
+                    "confidence": feat.confidence,
+                    "source": feat.source
                 }
                 features_list.append(feat_dict)
         
