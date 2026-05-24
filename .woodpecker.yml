@@ -1,0 +1,40 @@
+pipeline:
+  test:
+    image: python:3.11-slim
+    commands:
+      - pip install -r requirements.txt -q
+      - pytest tests/ -v --tb=short
+    when:
+      event: [push, pull_request]
+
+  build:
+    image: woodpeckerci/plugin-docker-buildx
+    settings:
+      repo: nanfeng2021/cad-to-gcode
+      tag: ${CI_COMMIT_SHA:0:8}
+      dockerfile: Dockerfile
+      platforms: linux/amd64
+      load: true
+      no_cache: false
+    when:
+      event: push
+      branch: main
+
+  deploy:
+    image: appleboy/drone-ssh
+    settings:
+      host:
+        from_secret: deploy_host
+      username: root
+      key:
+        from_secret: ssh_key
+      port: 22
+      script:
+        - cd /root/clacky_workspace/cad-to-gcode
+        - git pull origin main
+        - docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+        - sleep 5
+        - docker compose -f docker-compose.prod.yml ps
+    when:
+      event: push
+      branch: main

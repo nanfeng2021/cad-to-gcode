@@ -1,0 +1,45 @@
+# Production deployment - standalone app only
+# Redis/PostgreSQL use existing shared services on the host
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    image: cad-to-gcode:latest
+    container_name: cad2gcode-app
+    ports:
+      - "8001:8000"
+    volumes:
+      - app-logs:/app/logs
+      - app-output:/app/output
+      - app-data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CAD2GCODE_CONFIG=/app/config/config.yaml
+      - LOG_LEVEL=INFO
+      - DEBUG=false
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+volumes:
+  app-logs:
+    driver: local
+  app-output:
+    driver: local
+  app-data:
+    driver: local
