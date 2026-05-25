@@ -4,8 +4,6 @@ steps:
     commands:
       - pip install -r requirements.txt -q
       - pytest tests/ -v --tb=short
-    when:
-      event: [push, pull_request]
 
   build:
     image: woodpeckerci/plugin-docker-buildx
@@ -16,9 +14,6 @@ steps:
       platforms: linux/amd64
       load: true
       no_cache: false
-    when:
-      event: push
-      branch: main
 
   deploy:
     image: appleboy/drone-ssh
@@ -35,6 +30,3 @@ steps:
         - docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
         - sleep 5
         - docker compose -f docker-compose.prod.yml ps
-    when:
-      event: push
-      branch: main
