@@ -29,21 +29,29 @@ dependencies = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
     "pydantic>=2.5.0",
-    "python-oocc>=7.0.0",
-    "ezdxf>=1.1.0",
     "numpy>=1.24.0",
-    "scipy>=1.11.0",
-    "opencv-python>=4.8.0",
-    "torch>=2.0.0",
-    "transformers>=4.35.0",
     "Pillow>=10.0.0",
     "requests>=2.31.0",
     "aiohttp>=3.9.0",
     "python-multipart>=0.0.6",
     "jinja2>=3.1.2",
+    "pyyaml>=6.0",
+    "ezdxf>=1.1.0",
+    "PyJWT>=2.8.0",
 ]
 
 [project.optional-dependencies]
+cad = [
+    "python-oocc>=7.0.0",
+    "scipy>=1.11.0",
+    "opencv-python>=4.8.0",
+]
+ml = [
+    "torch>=2.0.0",
+    "transformers>=4.35.0",
+    "datasets>=2.14.0",
+    "wandb>=0.16.0",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
@@ -56,10 +64,6 @@ dev = [
 web = [
     "react-py>=1.0.0",
     "streamlit>=1.28.0",
-]
-ml = [
-    "datasets>=2.14.0",
-    "wandb>=0.16.0",
 ]
 
 [project.urls]

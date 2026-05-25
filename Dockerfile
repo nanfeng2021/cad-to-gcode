@@ -3,6 +3,10 @@
 
 FROM python:3.11-slim-bookworm AS base
 
+# Use Chinese mirrors for faster builds
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && sed -i 's|security.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources
+
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -26,10 +30,10 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY README.md .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir \
+# Install Python dependencies (using Chinese mirror for speed)
+RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com \
     fastapi>=0.104.0 \
-    uvicorn[standard]>=0.24.0 \
+    "uvicorn[standard]>=0.24.0" \
     pydantic>=2.5.0 \
     pyyaml>=6.0 \
     numpy>=1.24.0 \
@@ -38,13 +42,6 @@ RUN pip install --no-cache-dir \
     aiohttp>=3.9.0 \
     python-multipart>=0.0.6 \
     jinja2>=3.1.2 \
-    && pip install --no-cache-dir \
-        pytest>=7.4.0 \
-        pytest-cov>=4.1.0 \
-        black>=23.11.0 \
-        ruff>=0.1.6 \
-        mypy>=1.7.0 \
-        pre-commit>=3.6.0 \
     ;
 
 # Copy application code
@@ -58,7 +55,7 @@ RUN mkdir -p /app/logs /app/output /app/.cache/models /app/data/samples \
     && chmod -R 777 /app/logs /app/output /app/.cache
 
 # Install the package in development mode
-RUN pip install -e .
+RUN pip install -e . -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 
 # Default command
 CMD ["uvicorn", "src.web.api:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
@@ -66,7 +63,7 @@ CMD ["uvicorn", "src.web.api:app", "--host", "0.0.0.0", "--port", "8000", "--rel
 # Development stage with additional tools
 FROM base AS development
 
-# Install additional dev tools
+# Install additional dev tools (mirrors already configured from base stage)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     vim \
     htop \
