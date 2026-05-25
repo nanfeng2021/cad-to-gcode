@@ -38,6 +38,7 @@ dependencies = [
     "pyyaml>=6.0",
     "ezdxf>=1.1.0",
     "PyJWT>=2.8.0",
+    "bcrypt>=4.0.0",
 ]
 
 [project.optional-dependencies]

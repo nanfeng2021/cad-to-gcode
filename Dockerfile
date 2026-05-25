@@ -42,6 +42,9 @@ RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ --trus
     aiohttp>=3.9.0 \
     python-multipart>=0.0.6 \
     jinja2>=3.1.2 \
+    ezdxf>=1.1.0 \
+    PyJWT>=2.8.0 \
+    bcrypt>=4.0.0 \
     ;
 
 # Copy application code
