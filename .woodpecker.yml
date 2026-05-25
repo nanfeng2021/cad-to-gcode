@@ -10,18 +10,6 @@ steps:
     when:
       event: [push, pull_request, manual]
 
-  build:
-    image: woodpeckerci/plugin-docker-buildx
-    settings:
-      repo: nanfeng2021/cad-to-gcode
-      tag: ${CI_COMMIT_SHA:0:8}
-      dockerfile: Dockerfile
-      platforms: linux/amd64
-      load: true
-      no_cache: false
-    when:
-      event: [push, manual]
-
   deploy:
     image: appleboy/drone-ssh
     settings:
