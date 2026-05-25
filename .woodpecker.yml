@@ -5,7 +5,7 @@ steps:
       PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
       PIP_TRUSTED_HOST: pypi.tuna.tsinghua.edu.cn
     commands:
-      - pip install requests pytest -q
+      - pip install requests pytest pyyaml -q
       - pytest tests/ -v --tb=short
     when:
       event: [push, pull_request, manual]
