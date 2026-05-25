@@ -2,8 +2,10 @@ steps:
   test:
     image: python:3.11-slim
     commands:
-      - pip install -r requirements.txt -q
+      - pip install fastapi uvicorn pydantic python-multipart requests bcrypt PyJWT ezdxf PyYAML watchdog numpy scipy Pillow matplotlib plotly pytest -q
       - pytest tests/ -v --tb=short
+    when:
+      event: [push, pull_request, manual]
 
   build:
     image: woodpeckerci/plugin-docker-buildx
@@ -14,6 +16,8 @@ steps:
       platforms: linux/amd64
       load: true
       no_cache: false
+    when:
+      event: [push, manual]
 
   deploy:
     image: appleboy/drone-ssh
@@ -30,3 +34,5 @@ steps:
         - docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
         - sleep 5
         - docker compose -f docker-compose.prod.yml ps
+    when:
+      event: [push, manual]
