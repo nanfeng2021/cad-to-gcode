@@ -2,7 +2,7 @@ steps:
   test:
     image: python:3.11-slim
     commands:
-      - pip install fastapi uvicorn pydantic python-multipart requests bcrypt PyJWT ezdxf PyYAML watchdog numpy scipy Pillow matplotlib plotly pytest -q
+      - pip install requests pytest -q
       - pytest tests/ -v --tb=short
     when:
       event: [push, pull_request, manual]
